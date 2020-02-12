@@ -25,6 +25,11 @@ Base64.decode64(client.contents("alphagov/govuk_publishing_components", path: "g
   @govuk_publishing_components_deps << line.split(" ")[1].gsub!(",", "") if line.match?(/spec\.add_dependency/)
 end
 
+@govuk_sidekiq_deps = []
+Base64.decode64(client.contents("alphagov/govuk_sidekiq", path: "govuk_sidekiq.gemspec").content).each_line do |line|
+  @govuk_sidekiq_deps << line.split(" ")[1].gsub!(",", "") if line.match?(/spec\.add_dependency/)
+end
+
 puts "Scanning #{govuk_app}..."
 Base64.decode64(client.contents(govuk_app, path: "Gemfile").content).each_line do |line|
   next unless line.match?(/gem\s+/)
@@ -36,6 +41,8 @@ Base64.decode64(client.contents(govuk_app, path: "Gemfile").content).each_line d
     puts "Gem #{gem} is duplicated from govuk_test."
   elsif @govuk_publishing_components_deps.compact.include?(gem)
     puts "Gem #{gem} is duplicated from govuk-publishing-components."
+  elsif @govuk_sidekiq_deps.compact.include?(gem)
+    puts "Gem #{gem} is duplicated from govuk_sidekiq."
   end
 end
 
