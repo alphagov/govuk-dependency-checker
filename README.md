@@ -14,5 +14,3 @@ this repo includes:
 
 They all require `GITHUB_TOKEN` as an environment variable, with at
 least `repo` scope.
-
-Owned by GOV.UK Platform Health.
