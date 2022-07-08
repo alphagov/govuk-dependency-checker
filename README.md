@@ -12,5 +12,12 @@ this repo includes:
   much work we do on Dependabot and how we approach the various
   version bumps.
 
+- Statistics on "time to merge" Dependabot PRs, showing how many days
+  have passed between Dependabot PRs being opened and merged. GitHub
+  Search API has a limit of 1000 results, and that's before filtering
+  out the non govuk repos, so we can only get statistics for the last
+  few weeks. GitHub's Search API applies strict secondary rate-limiting,
+  hence the need to stagger requests, which makes this a bit slow to run.
+
 They all require `GITHUB_TOKEN` as an environment variable, with at
 least `repo` scope.
