@@ -18,7 +18,6 @@ function updateRepos(){
   var sheet = SpreadsheetApp.getActive().getSheetByName('Repos');
   sheet.clear({ contentsOnly: true });
   sheet.getRange(1, 1, csvData.length, csvData[0].length).setValues(csvData);
-  sheet.deleteColumns(3, (csvData[0].length - 2));
   updateSheet_(sheet);
 }
 
