@@ -70,7 +70,7 @@ function updateRubyVersion_(repo, targetCell) {
   if (version) {
     targetCell.setValue(version);
   } else {
-    targetCell.setValue("unspecified");
+    targetCell.setValue("n/a");
   }    
 }
 
