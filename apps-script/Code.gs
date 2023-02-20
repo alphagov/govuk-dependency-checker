@@ -2,6 +2,12 @@
  * @OnlyCurrentDoc
  */
 
+/*Formulas for conditional formatting of Repos tab
+
+Green: =ISNUMBER(MATCH(C2,INDEX(INDIRECT("'Tracking and reference'!$B$2:$G$10"),MATCH(C$1,INDIRECT("'Tracking and reference'!$A$2:$A$10"),0)),0))
+Red: =NOT(ISNUMBER(MATCH(C2,INDEX(INDIRECT("'Tracking and reference'!$B$2:$G$10"),MATCH(C$1,INDIRECT("'Tracking and reference'!$A$2:$A$10"),0)),0)))
+*/
+
 function onOpen() {
   var spreadsheet = SpreadsheetApp.getActive();
   var menuItems = [
@@ -18,7 +24,6 @@ function updateRepos(){
   var sheet = SpreadsheetApp.getActive().getSheetByName('Repos');
   sheet.clear({ contentsOnly: true });
   sheet.getRange(1, 1, csvData.length, csvData[0].length).setValues(csvData);
-  sheet.deleteColumns(3, (csvData[0].length - 2));
   updateSheet_(sheet);
 }
 
@@ -65,7 +70,7 @@ function updateRubyVersion_(repo, targetCell) {
   if (version) {
     targetCell.setValue(version);
   } else {
-    targetCell.setValue("unspecified");
+    targetCell.setValue("n/a");
   }    
 }
 
