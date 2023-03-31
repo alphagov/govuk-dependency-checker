@@ -1,0 +1,26 @@
+#!/usr/bin/env ruby
+
+require "slop"
+require "./dependabot_time_to_merge.rb"
+
+def get_options
+  options = Slop::Options.new do |o|
+    o.on "-h", "--help", "print this usage information" do
+      puts o
+      exit
+    end
+    o.string "--from", "(required)", required: true
+    o.string "--to", "(required)", required: true
+    o.string "--outdated-limit", "display which dependencies were outdated for more than X number of days", default: 20
+  end
+
+  begin
+    options.parse(ARGV).to_hash
+  rescue Slop::Error => e
+    puts e
+    puts options
+    exit
+  end
+end
+
+Dependabot.new.dependabot_time_to_merge(**get_options)

@@ -13,11 +13,17 @@ this repo includes:
   version bumps.
 
 - Statistics on "time to merge" Dependabot PRs, showing how many days
-  have passed between Dependabot PRs being opened and merged. GitHub
-  Search API has a limit of 1000 results, and that's before filtering
-  out the non govuk repos, so we can only get statistics for the last
-  few weeks. GitHub's Search API applies strict secondary rate-limiting,
-  hence the need to stagger requests, which makes this a bit slow to run.
+  have passed between Dependabot PRs being opened and merged. We are
+  retrieving maximum 300 PRs per repository, so we won't have accurate
+  statistics for the PRs opened a few months in the past. The script
+  takes around 15 minutes to run.
+
+  ```
+  ./dependabot_time_to_merge --from 2023-03-27 --to 2023-03-28 --outdated-limit 30
+  ```
+
+  `--outdated-limit` option is used for displaying which dependencies were outdated
+  for more than X number of days (default value is 20)
 
 They all require `GITHUB_TOKEN` as an environment variable, with at
 least `repo` scope.
