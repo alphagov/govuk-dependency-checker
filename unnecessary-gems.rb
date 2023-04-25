@@ -3,10 +3,10 @@
 # or govuk_test.
 # Usage: GITHUB_TOKEN=abc123 ruby unnecessary-gems.rb alphagov/whitehall
 
-require 'octokit'
-require 'json'
+require "octokit"
+require "json"
 
-client = Octokit::Client.new(access_token: ENV['GITHUB_TOKEN'], auto_paginate: true)
+client = Octokit::Client.new(access_token: ENV["GITHUB_TOKEN"], auto_paginate: true)
 
 govuk_app = ARGV[0].start_with?("alphagov/") ? ARGV[0] : "alphagov/#{ARGV[0]}"
 
@@ -33,6 +33,7 @@ end
 puts "Scanning #{govuk_app}..."
 Base64.decode64(client.contents(govuk_app, path: "Gemfile").content).each_line do |line|
   next unless line.match?(/gem\s+/)
+
   gem = line.split(" ")[1].gsub(",", "")
 
   if @govuk_app_config_deps.compact.include?(gem)

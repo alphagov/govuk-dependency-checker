@@ -11,7 +11,7 @@ class Dependabot
     @client ||=
       Octokit::Client.new(
         access_token: ENV.fetch("GITHUB_TOKEN"),
-        auto_paginate: false
+        auto_paginate: false,
       )
   end
 
@@ -19,8 +19,8 @@ class Dependabot
     @govuk_repos ||=
       JSON.parse(
         Net::HTTP.get(
-          URI('https://docs.publishing.service.gov.uk/repos.json')
-        )
+          URI("https://docs.publishing.service.gov.uk/repos.json"),
+        ),
       )
           .map { |repo| "alphagov/#{repo['app_name']}" }
   end
@@ -40,7 +40,7 @@ class Dependabot
   def get_repo_prs(repo)
     repo_prs = []
     (1..PAGINATION_LIMIT).each do |page|
-      repo_prs += client.list_issues(repo, { state: 'all', labels: 'dependencies', page: page })
+      repo_prs += client.list_issues(repo, { state: "all", labels: "dependencies", page: page })
     end
     repo_prs
   rescue Octokit::NotFound
@@ -58,9 +58,9 @@ class Dependabot
       repo_dependabot_prs[dependency_name] = [] if repo_dependabot_prs[dependency_name].nil?
       repo_dependabot_prs[dependency_name] << {
         created_at: pr.created_at,
-        merged_at: pr.pull_request['merged_at'],
+        merged_at: pr.pull_request["merged_at"],
         closed_at: pr.closed_at,
-        from_version: from_version
+        from_version: from_version,
       }
     end
     repo_dependabot_prs
@@ -89,26 +89,26 @@ class Dependabot
         if opened_pr[:closed_at].nil?
           days_since_open = (Time.now - created_at).to_i / DAY_IN_SECONDS
           time_since_open << days_since_open
-          puts "Dependency #{ dependency } from #{ repo } has been outdated for #{ days_since_open } days" if days_since_open >= outdated_limit
+          puts "Dependency #{dependency} from #{repo} has been outdated for #{days_since_open} days" if days_since_open >= outdated_limit
         end
 
         next unless opened_pr[:merged_at]
 
         days_to_merge = (opened_pr[:merged_at] - created_at).to_i / DAY_IN_SECONDS
         time_to_merge << days_to_merge
-        puts "Dependency #{ dependency } from #{ repo } was merged in #{ days_to_merge } days" if days_to_merge >= outdated_limit
+        puts "Dependency #{dependency} from #{repo} was merged in #{days_to_merge} days" if days_to_merge >= outdated_limit
       end
     end
 
     {
       total_opened_prs: total_opened_prs,
       time_since_open: time_since_open,
-      time_to_merge: time_to_merge
+      time_to_merge: time_to_merge,
     }
   end
 
   def dependabot_time_to_merge(from:, to:, outdated_limit:)
-    puts 'Fetching dependabot PRs...'
+    puts "Fetching dependabot PRs..."
     total_opened_prs = 0
     time_to_merge = []
     time_since_open = []
