@@ -4,6 +4,7 @@ source "https://rubygems.org"
 
 gem "octokit", "~> 6.1"
 gem "slop"
+gem 'rubocop-govuk', require: false
 
 group :test do
   gem "rake"
