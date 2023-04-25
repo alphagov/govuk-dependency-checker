@@ -107,14 +107,24 @@ class Dependabot
     }
   end
 
-  def dependabot_time_to_merge(from:, to:, outdated_limit:)
+  def dependabot_time_to_merge(from:, to:, days_range:, outdated_limit:)
     puts "Fetching dependabot PRs..."
     total_opened_prs = 0
     time_to_merge = []
     time_since_open = []
 
+    if days_range
+      to = Time.parse(Date.today.to_s)
+      from = Time.parse((Date.today - days_range).to_s)
+    elsif from && to
+      from = Time.parse(from)
+      to = Time.parse(to)
+    else
+      raise ArgumentError, "You must provide either --days-range or both --from and --to."
+    end
+
     govuk_repos.each do |repo|
-      repo_metrics = get_repo_metrics(repo, Time.parse(from), Time.parse(to), outdated_limit)
+      repo_metrics = get_repo_metrics(repo, from, to, outdated_limit)
       total_opened_prs += repo_metrics[:total_opened_prs]
       time_to_merge += repo_metrics[:time_to_merge]
       time_since_open += repo_metrics[:time_since_open]

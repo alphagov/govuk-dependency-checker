@@ -9,13 +9,22 @@ def get_options
       puts o
       exit
     end
-    o.string "--from", "(required)", required: true
-    o.string "--to", "(required)", required: true
-    o.string "--outdated-limit", "display which dependencies were outdated for more than X number of days", default: 20
+    o.string "--from", "(optional)"
+    o.string "--to", "(optional)"
+    o.integer "--days-range", "specify a range of days from today", required: false
+    o.integer "--outdated-limit", "display which dependencies were outdated for more than X number of days", default: 20
   end
 
   begin
-    options.parse(ARGV).to_hash
+    parsed_options = options.parse(ARGV).to_hash
+
+    if parsed_options[:from].nil? && parsed_options[:to].nil? && parsed_options[:days_range].nil?
+      raise Slop::Error, "You must provide either --from and --to or --days-range."
+    elsif (!parsed_options[:from].nil? && parsed_options[:to].nil?) || (parsed_options[:from].nil? && !parsed_options[:to].nil?)
+      raise Slop::Error, "Both --from and --to must be provided together."
+    end
+
+    parsed_options
   rescue Slop::Error => e
     puts e
     puts options
