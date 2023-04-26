@@ -125,14 +125,14 @@ class Dependabot
 
   def frequently_updated_repos(from, to)
     repo_update_count = {}
-  
+
     govuk_repos.each do |repo|
       repo_metrics = get_repo_metrics(repo, from, to, 0) # set outdated_limit to 0 to skip printing outdated dependencies
       repo_update_count[repo] = repo_metrics[:total_opened_prs]
     end
-  
-    repo_update_count.sort_by { |_, count| -count }
-  end  
+
+    repo_update_count.select { |_, count| count.positive? }.sort_by { |_, count| -count }
+  end
 
   def dependabot_time_to_merge(from:, to:, days_range:, outdated_limit:)
     puts "Fetching dependabot PRs..."
@@ -185,15 +185,15 @@ class Dependabot
       puts "#{days} days: #{count} PRs"
     end
     puts "Frequently updated repos:"
-    frequently_updated.each { |repo, count| puts "#{repo}: #{count} PRs" }  
+    frequently_updated.each { |repo, count| puts "#{repo}: #{count} PRs" }
     puts "Number of PRs per dependency:"
     prs_per_dependency
-      .select { |_, count| count > 0 }
+      .select { |_, count| count.positive? }
       .sort_by { |_, count| -count }
       .each { |dependency, count| puts "#{dependency}: #{count} PRs" }
     puts "Number of open PRs per dependency:"
     open_prs_per_dependency
-      .select { |_, count| count > 0 }
+      .select { |_, count| count.positive? }
       .sort_by { |_, count| -count }
       .each { |dependency, count| puts "#{dependency}: #{count} open PRs" }
   end
