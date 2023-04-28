@@ -12,6 +12,7 @@ def get_options
     o.string "--from", "(optional)"
     o.string "--to", "(optional)"
     o.integer "--days-range", "specify a range of days from today", required: false
+    o.string "--output-format", "CLI or json", default: "CLI"
     o.integer "--outdated-limit", "display which dependencies were outdated for more than X number of days", default: 20
   end
 
@@ -38,4 +39,4 @@ def get_options
 end
 
 options = get_options
-Dependabot.new.dependabot_time_to_merge(from: options[:from], to: options[:to], outdated_limit: options[:outdated_limit])
+Dependabot.new.dependabot_time_to_merge(from: options[:from], to: options[:to], outdated_limit: options[:outdated_limit], output_format: options[:output_format])

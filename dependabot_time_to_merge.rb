@@ -63,9 +63,15 @@ class Dependabot
         merged_at: pr.pull_request["merged_at"],
         closed_at: pr.closed_at,
         from_version: from_version,
+        pr_number: pr.number,
       }
     end
     repo_dependabot_prs
+  end
+
+  def fetch_checks_status(repo, pr_number)
+    check_runs = client.check_runs_for_ref(repo, pr_number)
+    check_runs.check_runs.map(&:conclusion)
   end
 
   def get_repo_metrics(repo, from, to, outdated_limit)
@@ -78,6 +84,7 @@ class Dependabot
     open_prs_per_dependency = Hash.new(0)
     outdated_dependencies = []
     long_merge_dependencies = []
+    failing_prs = []
 
     dependabot_prs.each do |dependency, prs|
       opened_prs = prs.filter { |pr| pr[:created_at].between?(from, to) }
@@ -100,6 +107,13 @@ class Dependabot
           if days_since_open >= outdated_limit
             outdated_dependencies << { dependency: dependency, repo: repo, days_outdated: days_since_open }
           end
+
+          pr_number = opened_pr[:pr_number]
+          pr_data = client.pull_request(repo, pr_number)
+          commit_ref = pr_data[:head][:sha]
+          check_conclusions = fetch_checks_status(repo, commit_ref)
+          failing_checks = check_conclusions.count { |conclusion| conclusion != "success" && conclusion != "neutral" && conclusion != "skipped" }
+          failing_prs << { dependency: dependency, repo: repo, pr_number: pr_number } if failing_checks.positive?
         end
 
         next unless opened_pr[:merged_at]
@@ -122,6 +136,7 @@ class Dependabot
       outdated_dependencies: outdated_dependencies,
       long_merge_dependencies: long_merge_dependencies,
       dependabot_history: dependabot_prs,
+      failing_prs: failing_prs,
     }
   end
 
@@ -135,7 +150,7 @@ class Dependabot
     closed_prs / total_prs.to_f * 100
   end
 
-  def dependabot_time_to_merge(from:, to:, outdated_limit:, output_format: "json")
+  def dependabot_time_to_merge(from:, to:, outdated_limit:, output_format: "CLI")
     metrics = calculate_metrics(from: from, to: to, outdated_limit: outdated_limit)
     display_metrics(metrics, output_format, outdated_limit)
   end
@@ -153,6 +168,7 @@ class Dependabot
     outdated_dependencies = []
     long_merge_dependencies = []
     pr_data = []
+    failing_prs = []
 
     govuk_repos.each do |repo|
       repo_metrics = get_repo_metrics(repo, from, to, outdated_limit)
@@ -160,6 +176,7 @@ class Dependabot
       closed_prs += repo_metrics[:time_to_merge].size
       time_to_merge += repo_metrics[:time_to_merge]
       time_since_open += repo_metrics[:time_since_open]
+      failing_prs += repo_metrics[:failing_prs]
 
       repo_metrics[:prs_per_dependency].each do |dependency, count|
         prs_per_dependency[dependency] += count
@@ -214,13 +231,14 @@ class Dependabot
       time_since_open_count: time_since_open.size,
       outdated_dependencies: outdated_dependencies,
       long_merge_dependencies: long_merge_dependencies,
+      failing_prs: failing_prs,
       pr_data: pr_data,
     }
   end
 
   def display_metrics(metrics, output_format, outdated_limit)
     case output_format
-    when "cli"
+    when "CLI"
       puts ""
       puts "Between #{metrics[:from]} and #{metrics[:to]}:"
       puts "- Dependabot raised #{metrics[:total_opened_prs]} PRs (total number of pull requests created by Dependabot)"
@@ -228,6 +246,9 @@ class Dependabot
       puts "- Success rate of PRs: #{metrics[:pr_success_rate].round(2)}% (percentage of pull requests that were successfully merged)"
       puts "- #{metrics[:time_to_merge_count]} were merged, within #{metrics[:average_time_to_merge]} days on average, taking into account any superseded PRs (average time taken to merge a pull request, including those that were superseded by newer PRs)"
       puts "- #{metrics[:time_since_open_count]} are still open. They've been open for an average of #{metrics[:average_time_since_open]} days, taking into account any superseded PRs (average time that open pull requests have been waiting to be merged, including those superseded by newer PRs)"
+      puts ""
+      puts "#- Failing PRs:"
+      puts metrics[:failing_prs].empty? ? "no PRs have failing checks" : metrics[:failing_prs].map { |item| "#{item[:repo]} - #{item[:dependency]} - PR ##{item[:pr_number]}" }
       puts ""
       puts "- Distribution of time-to-merge (number of pull requests grouped by the number of days taken to merge):"
       metrics[:time_to_merge_distribution].each do |days, count|
@@ -273,6 +294,7 @@ class Dependabot
         open_prs_per_dependency: metrics[:open_prs_per_dependency],
         outdated_dependencies: metrics[:outdated_dependencies],
         long_merge_dependencies: metrics[:long_merge_dependencies],
+        failing_prs: metrics[:failing_prs],
         pr_data: metrics[:pr_data],
       }
 
