@@ -31,28 +31,28 @@ class Dependabot
     [details[1], details[2]]
   end
 
-  def get_repo_prs(repo)
+  def get_repo_prs(repo, from)
     repo_prs = []
     page = 1
 
     loop do
       puts "#{repo} page: #{page}"
-      issues = client.list_issues(repo, { state: "all", labels: "dependencies", page: page, per_page: 100 })
+      issues = client.list_issues(repo, { state: "all", labels: "dependencies", since: from, page: page, per_page: 100 })
       break if issues.empty?
 
       repo_prs += issues
       page += 1
     end
 
-    repo_prs
+    repo_prs.select(&:pull_request)
   rescue Octokit::NotFound
     []
   end
 
-  def dependabot_history_per_repo(repo)
+  def dependabot_history_per_repo(repo, from)
     repo_dependabot_prs = {}
 
-    get_repo_prs(repo).each do |pr|
+    get_repo_prs(repo, from).each do |pr|
       dependency_name, from_version = get_dependency_name_and_version(pr.title)
 
       next if dependency_name.nil?
@@ -69,7 +69,7 @@ class Dependabot
   end
 
   def get_repo_metrics(repo, from, to, outdated_limit)
-    dependabot_prs = dependabot_history_per_repo(repo)
+    dependabot_prs = dependabot_history_per_repo(repo, from)
 
     total_opened_prs = 0
     time_to_merge = []
@@ -121,6 +121,7 @@ class Dependabot
       open_prs_per_dependency: open_prs_per_dependency,
       outdated_dependencies: outdated_dependencies,
       long_merge_dependencies: long_merge_dependencies,
+      dependabot_history: dependabot_prs,
     }
   end
 
@@ -134,7 +135,7 @@ class Dependabot
     closed_prs / total_prs.to_f * 100
   end
 
-  def dependabot_time_to_merge(from:, to:, outdated_limit:, output_format: "cli")
+  def dependabot_time_to_merge(from:, to:, outdated_limit:, output_format: "json")
     metrics = calculate_metrics(from: from, to: to, outdated_limit: outdated_limit)
     display_metrics(metrics, output_format, outdated_limit)
   end
@@ -151,6 +152,7 @@ class Dependabot
     frequently_updated = {}
     outdated_dependencies = []
     long_merge_dependencies = []
+    pr_data = []
 
     govuk_repos.each do |repo|
       repo_metrics = get_repo_metrics(repo, from, to, outdated_limit)
@@ -170,6 +172,24 @@ class Dependabot
       outdated_dependencies += repo_metrics[:outdated_dependencies]
       long_merge_dependencies += repo_metrics[:long_merge_dependencies]
       frequently_updated[repo] = repo_metrics[:total_opened_prs]
+
+      repo_metrics[:prs_data] = []
+      repo_metrics[:dependabot_history].each do |dependency, prs|
+        opened_prs = prs.filter { |pr| pr[:created_at].between?(from, to) }
+
+        opened_prs.each do |opened_pr|
+          pr_data_item = {
+            repo: repo,
+            dependency: dependency,
+            created_at: opened_pr[:created_at],
+            merged_at: opened_pr[:merged_at],
+            closed_at: opened_pr[:closed_at],
+            from_version: opened_pr[:from_version],
+          }
+          pr_data << pr_data_item
+          repo_metrics[:prs_data] << pr_data_item
+        end
+      end
     end
 
     time_to_merge_distribution = time_to_merge_distribution(time_to_merge)
@@ -194,6 +214,7 @@ class Dependabot
       time_since_open_count: time_since_open.size,
       outdated_dependencies: outdated_dependencies,
       long_merge_dependencies: long_merge_dependencies,
+      pr_data: pr_data,
     }
   end
 
@@ -232,8 +253,30 @@ class Dependabot
         puts "Dependency #{dependency_info[:dependency]} from #{dependency_info[:repo]} was merged in #{dependency_info[:days_to_merge]} days"
       end
     when "json"
-      # Display the results in JSON format
-      # ...
+      json_output = {
+        range: {
+          from: metrics[:from].strftime("%Y-%m-%dT%H:%M:%SZ"),
+          to: metrics[:to].strftime("%Y-%m-%dT%H:%M:%SZ"),
+        },
+        summary: {
+          total_opened_prs: metrics[:total_opened_prs],
+          closed_prs: metrics[:closed_prs],
+          pr_success_rate: metrics[:pr_success_rate].round(2),
+          average_time_to_merge: metrics[:average_time_to_merge],
+          average_time_since_open: metrics[:average_time_since_open],
+          time_to_merge_count: metrics[:time_to_merge_count],
+          time_since_open_count: metrics[:time_since_open_count],
+        },
+        time_to_merge_distribution: metrics[:time_to_merge_distribution],
+        frequently_updated: metrics[:frequently_updated],
+        prs_per_dependency: metrics[:prs_per_dependency],
+        open_prs_per_dependency: metrics[:open_prs_per_dependency],
+        outdated_dependencies: metrics[:outdated_dependencies],
+        long_merge_dependencies: metrics[:long_merge_dependencies],
+        pr_data: metrics[:pr_data],
+      }
+
+      puts JSON.pretty_generate(json_output)
     when "csv"
       # Display the results in CSV format
       # ...
