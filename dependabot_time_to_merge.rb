@@ -13,13 +13,13 @@ class Dependabot
   end
 
   def govuk_repos
-    [
-      "alphagov/content-data-api",
-      "alphagov/content-data-admin",
-      "alphagov/datagovuk_find",
-      "alphagov/govuk-puppet",
-      "alphagov/whitehall",
-    ]
+    @govuk_repos ||=
+      JSON.parse(
+        Net::HTTP.get(
+          URI('https://docs.publishing.service.gov.uk/repos.json')
+        )
+      )
+          .map { |repo| "alphagov/#{repo['app_name']}" }
   end
 
   def get_dependency_name_and_version(title)
@@ -227,7 +227,6 @@ class Dependabot
       frequently_updated: frequently_updated,
       prs_per_dependency: prs_per_dependency,
       open_prs_per_dependency: open_prs_per_dependency,
-      time_to_merge_count: time_to_merge.size,
       time_since_open_count: time_since_open.size,
       outdated_dependencies: outdated_dependencies,
       long_merge_dependencies: long_merge_dependencies,
@@ -240,35 +239,61 @@ class Dependabot
     case output_format
     when "CLI"
       puts ""
-      puts "Between #{metrics[:from]} and #{metrics[:to]}:"
-      puts "- Dependabot raised #{metrics[:total_opened_prs]} PRs (total number of pull requests created by Dependabot)"
-      puts "- #{metrics[:closed_prs]} PRs were merged or closed (total number of pull requests that were either merged or closed without merging)"
-      puts "- Success rate of PRs: #{metrics[:pr_success_rate].round(2)}% (percentage of pull requests that were successfully merged)"
-      puts "- #{metrics[:time_to_merge_count]} were merged, within #{metrics[:average_time_to_merge]} days on average, taking into account any superseded PRs (average time taken to merge a pull request, including those that were superseded by newer PRs)"
-      puts "- #{metrics[:time_since_open_count]} are still open. They've been open for an average of #{metrics[:average_time_since_open]} days, taking into account any superseded PRs (average time that open pull requests have been waiting to be merged, including those superseded by newer PRs)"
+      puts "Dependabot Metrics (from #{metrics[:from]} to #{metrics[:to]}):"
+      puts "-----------------------------------------------------------------"
+      puts "Total PRs raised by Dependabot: #{metrics[:total_opened_prs]}"
+      puts "  (The total number of pull requests opened by Dependabot during the specified time period)"
       puts ""
-      puts "#- Failing PRs:"
-      puts metrics[:failing_prs].empty? ? "no PRs have failing checks" : metrics[:failing_prs].map { |item| "#{item[:repo]} - #{item[:dependency]} - PR ##{item[:pr_number]}" }
+      puts "Total PRs merged or closed: #{metrics[:closed_prs]}"
+      puts "  (The total number of pull requests either merged or closed during the specified time period)"
       puts ""
-      puts "- Distribution of time-to-merge (number of pull requests grouped by the number of days taken to merge):"
+      puts "Total PRs still open: #{metrics[:time_since_open_count]}"
+      puts "  (The total number of pull requests opened by Dependabot during the specified time period that are still open)"
+      puts ""
+      puts "PR success rate: #{metrics[:pr_success_rate].round(2)}%"
+      puts "  (The percentage of Dependabot PRs that have been successfully merged or closed)"
+      puts ""
+      puts "Average time to merge a PR (including superseded PRs): #{metrics[:average_time_to_merge]} days"
+      puts "  (The average number of days it takes to merge a Dependabot PR, including those that were superseded by newer PRs)"
+      puts ""
+      puts "Average time open PRs have been waiting (including superseded PRs): #{metrics[:average_time_since_open]} days"
+      puts "  (The average number of days that open Dependabot PRs have been waiting for a merge, including those that were superseded by newer PRs)"
+      puts ""
+      puts "-----------------------------------------------------------------"
+      puts "#{metrics[:failing_prs].count} Failing PRs:"
+      puts metrics[:failing_prs].empty? ? "No PRs have failing checks" : metrics[:failing_prs].map { |item| "#{item[:repo]} - #{item[:dependency]} - PR ##{item[:pr_number]}" }
+      puts "  (A list of open Dependabot PRs that currently have failing checks)"
+      puts ""
+      puts "-----------------------------------------------------------------"
+      puts "Time-to-Merge Distribution:"
       metrics[:time_to_merge_distribution].each do |days, count|
         puts "#{days} days: #{count} PRs"
       end
+      puts "  (A distribution of the number of days it takes to merge Dependabot PRs)"
       puts ""
-      puts "- Frequently updated repos (repositories with the highest number of pull requests created by Dependabot):"
+      puts "-----------------------------------------------------------------"
+      puts "Frequently Updated Repos:"
       metrics[:frequently_updated].each { |repo, count| puts "#{repo}: #{count} PRs" }
+      puts "  (A list of repositories that receive the most frequent Dependabot PRs)"
       puts ""
-      puts "- Number of PRs per dependency (total number of pull requests created for each dependency):"
+      puts "-----------------------------------------------------------------"
+      puts "Number of PRs per Dependency:"
       metrics[:prs_per_dependency].each { |dependency, count| puts "#{dependency}: #{count} PRs" }
+      puts "  (A breakdown of the number of Dependabot PRs per dependency)"
       puts ""
-      puts "- Number of open PRs per dependency (number of pull requests that are still open for each dependency):"
+      puts "-----------------------------------------------------------------"
+      puts "Number of Open PRs per Dependency:"
       metrics[:open_prs_per_dependency].each { |dependency, count| puts "#{dependency}: #{count} PRs" }
+      puts "  (A breakdown of the number of open Dependabot PRs per dependency)"
       puts ""
-      puts "- Dependencies that have been outdated for more than #{outdated_limit} days (dependencies with open pull requests that have not been merged for a specified number of days):"
+      puts "-----------------------------------------------------------------"
+      puts "Dependencies Outdated for More Than #{outdated_limit} Days:"
       metrics[:outdated_dependencies].each do |dependency_info|
-        puts "Dependency #{dependency_info[:dependency]} from #{dependency_info[:repo]} has been outdated for #{dependency_info[:days_outdated]} days"
+        puts "#{dependency_info[:dependency]} from #{dependency_info[:repo]}: #{dependency_info[:days_outdated]} days"
       end
+      puts "  (A list of dependencies that have had open Dependabot PRs for more than the specified number of days, indicating that they may require attention)"
       puts ""
+      puts "-----------------------------------------------------------------"
       puts "- Dependencies that took more than #{outdated_limit} days to merge (dependencies with pull requests that took longer than a specified number of days to merge):"
       metrics[:long_merge_dependencies].each do |dependency_info|
         puts "Dependency #{dependency_info[:dependency]} from #{dependency_info[:repo]} was merged in #{dependency_info[:days_to_merge]} days"
