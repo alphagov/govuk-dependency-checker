@@ -24,6 +24,11 @@ def get_options
       raise Slop::Error, "Both --from and --to must be provided together."
     end
 
+    if parsed_options[:days_range]
+      parsed_options[:to] = Date.today.to_s
+      parsed_options[:from] = (Date.today - parsed_options[:days_range]).to_s
+    end
+
     parsed_options
   rescue Slop::Error => e
     puts e
@@ -32,4 +37,5 @@ def get_options
   end
 end
 
-Dependabot.new.dependabot_time_to_merge(**get_options)
+options = get_options
+Dependabot.new.dependabot_time_to_merge(from: options[:from], to: options[:to], outdated_limit: options[:outdated_limit])

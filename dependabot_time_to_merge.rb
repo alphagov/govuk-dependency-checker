@@ -3,9 +3,6 @@ require "net/http"
 require "json"
 require "date"
 
-PAGINATION_LIMIT = 10
-DAY_IN_SECONDS = 24 * 60 * 60
-
 class Dependabot
   def client
     @client ||=
@@ -16,22 +13,19 @@ class Dependabot
   end
 
   def govuk_repos
-    @govuk_repos ||=
-      JSON.parse(
-        Net::HTTP.get(
-          URI("https://docs.publishing.service.gov.uk/repos.json"),
-        ),
-      )
-          .map { |repo| "alphagov/#{repo['app_name']}" }
+    [
+      "alphagov/content-data-api",
+      "alphagov/content-data-admin",
+      "alphagov/datagovuk_find",
+      "alphagov/govuk-puppet",
+      "alphagov/whitehall",
+    ]
   end
 
   def get_dependency_name_and_version(title)
-    # Extract the dependency name and version from the PR title.
-    details = title.match(/^(?:(?:\[Security\]\ )?Bump|build\(deps.*\): bump) (.+) from (.+) to (.+)/) || title.match(/^Update (.+) requirement from (?:=|~>) (.+) to (?:=|~>)/)
+    details = title.match(/^(?:(?:\[Security\]\ )?Bump|build\(deps.*\): bump) (.+) from (.+) to (.+)/) ||
+      title.match(/^Update (.+) requirement from (?:=|~>) (.+) to (?:=|~>)/)
 
-    # There are a few PRs that don't have the expected structure.
-    # We can ignore those since the number is low (for example, from 1040 PRs raised 33 have a different structure)
-    # and it won't have a big impact on the final results
     return nil if details.nil?
 
     [details[1], details[2]]
@@ -39,9 +33,17 @@ class Dependabot
 
   def get_repo_prs(repo)
     repo_prs = []
-    (1..PAGINATION_LIMIT).each do |page|
-      repo_prs += client.list_issues(repo, { state: "all", labels: "dependencies", page: page })
+    page = 1
+
+    loop do
+      puts "#{repo} page: #{page}"
+      issues = client.list_issues(repo, { state: "all", labels: "dependencies", page: page, per_page: 100 })
+      break if issues.empty?
+
+      repo_prs += issues
+      page += 1
     end
+
     repo_prs
   rescue Octokit::NotFound
     []
@@ -67,7 +69,6 @@ class Dependabot
   end
 
   def get_repo_metrics(repo, from, to, outdated_limit)
-    # Get the insights for each repository
     dependabot_prs = dependabot_history_per_repo(repo)
 
     total_opened_prs = 0
@@ -75,6 +76,8 @@ class Dependabot
     time_since_open = []
     prs_per_dependency = Hash.new(0)
     open_prs_per_dependency = Hash.new(0)
+    outdated_dependencies = []
+    long_merge_dependencies = []
 
     dependabot_prs.each do |dependency, prs|
       opened_prs = prs.filter { |pr| pr[:created_at].between?(from, to) }
@@ -90,17 +93,23 @@ class Dependabot
                      .map { |pr| pr[:created_at] }.min
 
         if opened_pr[:closed_at].nil?
-          days_since_open = (Time.now - created_at).to_i / DAY_IN_SECONDS
+          days_since_open = (Date.today - created_at.to_date).to_i
           time_since_open << days_since_open
           open_prs_per_dependency[dependency] += 1
-          puts "Dependency #{dependency} from #{repo} has been outdated for #{days_since_open} days" if days_since_open >= outdated_limit
+
+          if days_since_open >= outdated_limit
+            outdated_dependencies << { dependency: dependency, repo: repo, days_outdated: days_since_open }
+          end
         end
 
         next unless opened_pr[:merged_at]
 
-        days_to_merge = (opened_pr[:merged_at] - created_at).to_i / DAY_IN_SECONDS
+        days_to_merge = (opened_pr[:merged_at].to_date - created_at.to_date).to_i
         time_to_merge << days_to_merge
-        puts "Dependency #{dependency} from #{repo} was merged in #{days_to_merge} days" if days_to_merge >= outdated_limit
+
+        if days_to_merge >= outdated_limit
+          long_merge_dependencies << { dependency: dependency, repo: repo, days_to_merge: days_to_merge }
+        end
       end
     end
 
@@ -110,6 +119,8 @@ class Dependabot
       time_to_merge: time_to_merge,
       prs_per_dependency: prs_per_dependency,
       open_prs_per_dependency: open_prs_per_dependency,
+      outdated_dependencies: outdated_dependencies,
+      long_merge_dependencies: long_merge_dependencies,
     }
   end
 
@@ -123,35 +134,23 @@ class Dependabot
     closed_prs / total_prs.to_f * 100
   end
 
-  def frequently_updated_repos(from, to)
-    repo_update_count = {}
-
-    govuk_repos.each do |repo|
-      repo_metrics = get_repo_metrics(repo, from, to, 0) # set outdated_limit to 0 to skip printing outdated dependencies
-      repo_update_count[repo] = repo_metrics[:total_opened_prs]
-    end
-
-    repo_update_count.select { |_, count| count.positive? }.sort_by { |_, count| -count }
+  def dependabot_time_to_merge(from:, to:, outdated_limit:, output_format: "cli")
+    metrics = calculate_metrics(from: from, to: to, outdated_limit: outdated_limit)
+    display_metrics(metrics, output_format, outdated_limit)
   end
 
-  def dependabot_time_to_merge(from:, to:, days_range:, outdated_limit:)
-    puts "Fetching dependabot PRs..."
+  def calculate_metrics(from:, to:, outdated_limit:)
+    from = Time.parse(from)
+    to = Time.parse(to)
     total_opened_prs = 0
     closed_prs = 0
     time_to_merge = []
     time_since_open = []
     prs_per_dependency = Hash.new(0)
     open_prs_per_dependency = Hash.new(0)
-
-    if days_range
-      to = Time.parse(Date.today.to_s)
-      from = Time.parse((Date.today - days_range).to_s)
-    elsif from && to
-      from = Time.parse(from)
-      to = Time.parse(to)
-    else
-      raise ArgumentError, "You must provide either --days-range or both --from and --to."
-    end
+    frequently_updated = {}
+    outdated_dependencies = []
+    long_merge_dependencies = []
 
     govuk_repos.each do |repo|
       repo_metrics = get_repo_metrics(repo, from, to, outdated_limit)
@@ -167,34 +166,79 @@ class Dependabot
       repo_metrics[:open_prs_per_dependency].each do |dependency, count|
         open_prs_per_dependency[dependency] += count
       end
+
+      outdated_dependencies += repo_metrics[:outdated_dependencies]
+      long_merge_dependencies += repo_metrics[:long_merge_dependencies]
+      frequently_updated[repo] = repo_metrics[:total_opened_prs]
     end
 
     time_to_merge_distribution = time_to_merge_distribution(time_to_merge)
     pr_success_rate = success_rate(total_opened_prs, closed_prs)
-    frequently_updated = frequently_updated_repos(from, to)
+    frequently_updated = frequently_updated.select { |_, count| count.positive? }.sort_by { |_, count| -count }.to_h
+    prs_per_dependency = prs_per_dependency.select { |_, count| count.positive? }.sort_by { |_, count| -count }.to_h
+    open_prs_per_dependency = open_prs_per_dependency.select { |_, count| count.positive? }.sort_by { |_, count| -count }.to_h
 
-    puts ""
-    puts "Between #{from} and #{to}:"
-    puts "- Dependabot raised #{total_opened_prs} PRs"
-    puts "- #{closed_prs} PRs were merged or closed"
-    puts "- Success rate of PRs: #{pr_success_rate.round(2)}%"
-    puts "- #{time_to_merge.size} were merged, within #{(time_to_merge.sum(0.0) / time_to_merge.size).round(2)} days on average, taking into account any superseded PRs."
-    puts "- #{time_since_open.size} are still open. They've been open for an average of #{(time_since_open.sum(0.0) / time_since_open.size).round(2)} days, taking into account any superseded PRs."
-    puts "Distribution of time-to-merge:"
-    time_to_merge_distribution.each do |days, count|
-      puts "#{days} days: #{count} PRs"
+    {
+      from: from,
+      to: to,
+      total_opened_prs: total_opened_prs,
+      closed_prs: closed_prs,
+      pr_success_rate: pr_success_rate,
+      average_time_to_merge: (time_to_merge.sum(0.0) / time_to_merge.size).round(2),
+      average_time_since_open: (time_since_open.sum(0.0) / time_since_open.size).round(2),
+      time_to_merge_distribution: time_to_merge_distribution,
+      frequently_updated: frequently_updated,
+      prs_per_dependency: prs_per_dependency,
+      open_prs_per_dependency: open_prs_per_dependency,
+      time_to_merge_count: time_to_merge.size,
+      time_since_open_count: time_since_open.size,
+      outdated_dependencies: outdated_dependencies,
+      long_merge_dependencies: long_merge_dependencies,
+    }
+  end
+
+  def display_metrics(metrics, output_format, outdated_limit)
+    case output_format
+    when "cli"
+      puts ""
+      puts "Between #{metrics[:from]} and #{metrics[:to]}:"
+      puts "- Dependabot raised #{metrics[:total_opened_prs]} PRs (total number of pull requests created by Dependabot)"
+      puts "- #{metrics[:closed_prs]} PRs were merged or closed (total number of pull requests that were either merged or closed without merging)"
+      puts "- Success rate of PRs: #{metrics[:pr_success_rate].round(2)}% (percentage of pull requests that were successfully merged)"
+      puts "- #{metrics[:time_to_merge_count]} were merged, within #{metrics[:average_time_to_merge]} days on average, taking into account any superseded PRs (average time taken to merge a pull request, including those that were superseded by newer PRs)"
+      puts "- #{metrics[:time_since_open_count]} are still open. They've been open for an average of #{metrics[:average_time_since_open]} days, taking into account any superseded PRs (average time that open pull requests have been waiting to be merged, including those superseded by newer PRs)"
+      puts ""
+      puts "- Distribution of time-to-merge (number of pull requests grouped by the number of days taken to merge):"
+      metrics[:time_to_merge_distribution].each do |days, count|
+        puts "#{days} days: #{count} PRs"
+      end
+      puts ""
+      puts "- Frequently updated repos (repositories with the highest number of pull requests created by Dependabot):"
+      metrics[:frequently_updated].each { |repo, count| puts "#{repo}: #{count} PRs" }
+      puts ""
+      puts "- Number of PRs per dependency (total number of pull requests created for each dependency):"
+      metrics[:prs_per_dependency].each { |dependency, count| puts "#{dependency}: #{count} PRs" }
+      puts ""
+      puts "- Number of open PRs per dependency (number of pull requests that are still open for each dependency):"
+      metrics[:open_prs_per_dependency].each { |dependency, count| puts "#{dependency}: #{count} PRs" }
+      puts ""
+      puts "- Dependencies that have been outdated for more than #{outdated_limit} days (dependencies with open pull requests that have not been merged for a specified number of days):"
+      metrics[:outdated_dependencies].each do |dependency_info|
+        puts "Dependency #{dependency_info[:dependency]} from #{dependency_info[:repo]} has been outdated for #{dependency_info[:days_outdated]} days"
+      end
+      puts ""
+      puts "- Dependencies that took more than #{outdated_limit} days to merge (dependencies with pull requests that took longer than a specified number of days to merge):"
+      metrics[:long_merge_dependencies].each do |dependency_info|
+        puts "Dependency #{dependency_info[:dependency]} from #{dependency_info[:repo]} was merged in #{dependency_info[:days_to_merge]} days"
+      end
+    when "json"
+      # Display the results in JSON format
+      # ...
+    when "csv"
+      # Display the results in CSV format
+      # ...
+    else
+      raise "Invalid output format: #{output_format}"
     end
-    puts "Frequently updated repos:"
-    frequently_updated.each { |repo, count| puts "#{repo}: #{count} PRs" }
-    puts "Number of PRs per dependency:"
-    prs_per_dependency
-      .select { |_, count| count.positive? }
-      .sort_by { |_, count| -count }
-      .each { |dependency, count| puts "#{dependency}: #{count} PRs" }
-    puts "Number of open PRs per dependency:"
-    open_prs_per_dependency
-      .select { |_, count| count.positive? }
-      .sort_by { |_, count| -count }
-      .each { |dependency, count| puts "#{dependency}: #{count} open PRs" }
   end
 end
