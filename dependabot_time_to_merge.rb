@@ -20,12 +20,12 @@ class Dependabot
 
   def determine_update_type(from_version_parts, to_version_parts)
     if from_version_parts[0] != to_version_parts[0]
-                    "major"
-                  elsif from_version_parts[1] != to_version_parts[1]
-                    "minor"
-                  else
-                    "patch"
-                  end
+      "major"
+    elsif from_version_parts[1] != to_version_parts[1]
+      "minor"
+    else
+      "patch"
+    end
   end
 
   def get_dependency_name_and_version(title)
@@ -82,89 +82,73 @@ class Dependabot
     check_runs.check_runs.map(&:conclusion)
   end
 
+  def process_pr(metrics, opened_pr, created_at, dependency, repo, outdated_limit)
+    update_type = opened_pr[:update_type]
+    metrics["#{update_type}_updates".to_sym] += 1
+
+    if opened_pr[:closed_at].nil?
+      days_since_open = (Date.today - created_at.to_date).to_i
+      metrics[:time_since_open] << days_since_open
+      metrics[:open_prs_per_dependency][dependency] += 1
+
+      if days_since_open >= outdated_limit
+        metrics[:outdated_dependencies] << { dependency: dependency, repo: repo, days_outdated: days_since_open }
+      end
+
+      pr_number = opened_pr[:pr_number]
+      pr_data = client.pull_request(repo, pr_number)
+      commit_ref = pr_data[:head][:sha]
+      check_conclusions = fetch_checks_status(repo, commit_ref)
+      failing_checks = check_conclusions.count { |conclusion| conclusion != "success" && conclusion != "neutral" && conclusion != "skipped" }
+      metrics[:failing_prs] << { dependency: dependency, repo: repo, pr_number: pr_number } if failing_checks.positive?
+    elsif !opened_pr[:merged_at]
+      metrics[:closed_without_merging] += 1
+    else
+      days_to_merge = (opened_pr[:merged_at].to_date - created_at.to_date).to_i
+      metrics[:time_to_merge] << days_to_merge
+
+      if days_to_merge >= outdated_limit
+        metrics[:long_merge_dependencies] << { dependency: dependency, repo: repo, days_to_merge: days_to_merge }
+      end
+    end
+  end
+
   def get_repo_metrics(repo, from, to, outdated_limit)
     dependabot_prs = dependabot_history_per_repo(repo, from)
+    metrics = {
+      total_opened_prs: 0,
+      time_since_open: [],
+      time_to_merge: [],
+      prs_per_dependency: Hash.new(0),
+      open_prs_per_dependency: Hash.new(0),
+      outdated_dependencies: [],
+      long_merge_dependencies: [],
+      dependabot_history: dependabot_prs,
+      failing_prs: [],
+      closed_without_merging: 0,
+      major_updates: 0,
+      minor_updates: 0,
+      patch_updates: 0,
+    }
 
-    major_updates = 0
-    minor_updates = 0
-    patch_updates = 0
-    total_opened_prs = 0
-    closed_without_merging = 0
-    time_to_merge = []
-    time_since_open = []
-    outdated_dependencies = []
-    long_merge_dependencies = []
-    failing_prs = []
-    prs_per_dependency = Hash.new(0)
-    open_prs_per_dependency = Hash.new(0)
+    update_types = %w[major minor patch]
+    update_types.each { |type| metrics["#{type}_updates"] = 0 }
 
     dependabot_prs.each do |dependency, prs|
       opened_prs = prs.filter { |pr| pr[:created_at].between?(from, to) }
-
-      total_opened_prs += opened_prs.size
-      prs_per_dependency[dependency] += opened_prs.size
+      metrics[:total_opened_prs] += opened_prs.size
+      metrics[:prs_per_dependency][dependency] += opened_prs.size
 
       opened_prs.each do |opened_pr|
-        # Get the date when the earliest PR for bumping the current version was created
-        # In this way we include superseded PRs in our calculations
         created_at = dependabot_prs[dependency]
                      .filter { |pr| pr[:from_version] == opened_pr[:from_version] }
                      .map { |pr| pr[:created_at] }.min
 
-        case opened_pr[:update_type]
-        when "patch"
-          patch_updates += 1
-        when "minor"
-          minor_updates += 1
-        when "major"
-          major_updates += 1
-        end
-
-        if opened_pr[:closed_at].nil?
-          days_since_open = (Date.today - created_at.to_date).to_i
-          time_since_open << days_since_open
-          open_prs_per_dependency[dependency] += 1
-
-          if days_since_open >= outdated_limit
-            outdated_dependencies << { dependency: dependency, repo: repo, days_outdated: days_since_open }
-          end
-
-          pr_number = opened_pr[:pr_number]
-          pr_data = client.pull_request(repo, pr_number)
-          commit_ref = pr_data[:head][:sha]
-          check_conclusions = fetch_checks_status(repo, commit_ref)
-          failing_checks = check_conclusions.count { |conclusion| conclusion != "success" && conclusion != "neutral" && conclusion != "skipped" }
-          failing_prs << { dependency: dependency, repo: repo, pr_number: pr_number } if failing_checks.positive?
-        end
-
-        closed_without_merging += 1 if !opened_pr[:merged_at] && !opened_pr[:closed_at].nil?
-
-        next unless opened_pr[:merged_at]
-
-        days_to_merge = (opened_pr[:merged_at].to_date - created_at.to_date).to_i
-        time_to_merge << days_to_merge
-
-        if days_to_merge >= outdated_limit
-          long_merge_dependencies << { dependency: dependency, repo: repo, days_to_merge: days_to_merge }
-        end
+        process_pr(metrics, opened_pr, created_at, dependency, repo, outdated_limit)
       end
     end
 
-    {
-      total_opened_prs: total_opened_prs,
-      time_since_open: time_since_open,
-      time_to_merge: time_to_merge,
-      prs_per_dependency: prs_per_dependency,
-      open_prs_per_dependency: open_prs_per_dependency,
-      outdated_dependencies: outdated_dependencies,
-      long_merge_dependencies: long_merge_dependencies,
-      dependabot_history: dependabot_prs,
-      failing_prs: failing_prs,
-      closed_without_merging: closed_without_merging,
-      major_updates: major_updates,
-      minor_updates: minor_updates,
-      patch_updates: patch_updates,
-    }
+    metrics
   end
 
   def time_to_merge_distribution(time_to_merge)
@@ -250,10 +234,9 @@ class Dependabot
     prs_per_dependency = prs_per_dependency.select { |_, count| count.positive? }.sort_by { |_, count| -count }.to_h
     open_prs_per_dependency = open_prs_per_dependency.select { |_, count| count.positive? }.sort_by { |_, count| -count }.to_h
 
-    total_updates = major + minor + patch
-    major_update_percentage = (major.to_f / total_updates * 100).round(2)
-    minor_update_percentage = (minor.to_f / total_updates * 100).round(2)
-    patch_update_percentage = (patch.to_f / total_updates * 100).round(2)
+    major_update_percentage = (major.to_f / total_opened_prs * 100).round(2)
+    minor_update_percentage = (minor.to_f / total_opened_prs * 100).round(2)
+    patch_update_percentage = (patch.to_f / total_opened_prs * 100).round(2)
 
     {
       from: from,
