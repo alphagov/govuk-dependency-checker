@@ -148,6 +148,7 @@ class Dependabot
       end
     end
 
+    metrics[:repo_name] = repo
     metrics
   end
 
@@ -167,99 +168,76 @@ class Dependabot
   end
 
   def calculate_metrics(from:, to:, outdated_limit:)
-    from = Time.parse(from)
-    to = Time.parse(to)
-    total_opened_prs = 0
-    merged_prs = 0
-    closed_without_merging = 0
-    major = 0
-    minor = 0
-    patch = 0
-    prs_per_dependency = Hash.new(0)
-    open_prs_per_dependency = Hash.new(0)
-    frequently_updated = {}
-    outdated_dependencies = []
-    long_merge_dependencies = []
-    pr_data = []
-    failing_prs = []
-    time_to_merge = []
-    time_since_open = []
+    from_time = Time.parse(from)
+    to_time = Time.parse(to)
+
+    metrics = {
+      total_opened_prs: 0,
+      merged_prs: 0,
+      closed_without_merging: 0,
+      major_updates: 0,
+      minor_updates: 0,
+      patch_updates: 0,
+      prs_per_dependency: Hash.new(0),
+      open_prs_per_dependency: Hash.new(0),
+      frequently_updated: Hash.new(0),
+      outdated_dependencies: [],
+      long_merge_dependencies: [],
+      pr_data: [],
+      failing_prs: [],
+      time_to_merge: [],
+      time_since_open: [],
+    }
 
     govuk_repos.each do |repo|
-      repo_metrics = get_repo_metrics(repo, from, to, outdated_limit)
-      total_opened_prs += repo_metrics[:total_opened_prs]
-      merged_prs += repo_metrics[:time_to_merge].size
-      closed_without_merging += repo_metrics[:closed_without_merging]
-      time_to_merge += repo_metrics[:time_to_merge]
-      time_since_open += repo_metrics[:time_since_open]
-      failing_prs += repo_metrics[:failing_prs]
-      major += repo_metrics[:major_updates]
-      minor += repo_metrics[:minor_updates]
-      patch += repo_metrics[:patch_updates]
+      repo_metrics = get_repo_metrics(repo, from_time, to_time, outdated_limit)
+      update_metrics(metrics, repo_metrics)
+    end
 
-      repo_metrics[:prs_per_dependency].each do |dependency, count|
-        prs_per_dependency[dependency] += count
-      end
+    metrics[:time_to_merge_distribution] = time_to_merge_distribution(metrics[:time_to_merge])
+    metrics[:pr_success_rate] = success_rate(metrics[:total_opened_prs], metrics[:time_to_merge].size + metrics[:closed_without_merging])
+    metrics[:frequently_updated] = sort_and_filter_count(metrics[:frequently_updated])
+    metrics[:prs_per_dependency] = sort_and_filter_count(metrics[:prs_per_dependency])
+    metrics[:open_prs_per_dependency] = sort_and_filter_count(metrics[:open_prs_per_dependency])
 
-      repo_metrics[:open_prs_per_dependency].each do |dependency, count|
-        open_prs_per_dependency[dependency] += count
-      end
+    metrics[:major_update_percentage] = (metrics[:major_updates].to_f / metrics[:total_opened_prs] * 100).round(2)
+    metrics[:minor_update_percentage] = (metrics[:minor_updates].to_f / metrics[:total_opened_prs] * 100).round(2)
+    metrics[:patch_update_percentage] = (metrics[:patch_updates].to_f / metrics[:total_opened_prs] * 100).round(2)
 
-      outdated_dependencies += repo_metrics[:outdated_dependencies]
-      long_merge_dependencies += repo_metrics[:long_merge_dependencies]
-      frequently_updated[repo] = repo_metrics[:total_opened_prs]
+    metrics[:from] = from_time
+    metrics[:to] = to_time
+    metrics[:average_time_to_merge] = average_time(metrics[:time_to_merge])
+    metrics[:average_time_since_open] = average_time(metrics[:time_since_open])
+    metrics[:time_since_open_count] = metrics[:time_since_open].size
+    metrics[:merged_prs] = metrics[:time_to_merge].size
 
-      repo_metrics[:prs_data] = []
-      repo_metrics[:dependabot_history].each do |dependency, prs|
-        opened_prs = prs.filter { |pr| pr[:created_at].between?(from, to) }
+    metrics
+  end
 
-        opened_prs.each do |opened_pr|
-          pr_data_item = {
-            repo: repo,
-            dependency: dependency,
-            created_at: opened_pr[:created_at],
-            merged_at: opened_pr[:merged_at],
-            closed_at: opened_pr[:closed_at],
-            from_version: opened_pr[:from_version],
-          }
-          pr_data << pr_data_item
-          repo_metrics[:prs_data] << pr_data_item
-        end
+  def update_metrics(metrics, repo_metrics)
+    metrics.each_key do |key|
+      case metrics[key]
+      when Hash
+        repo_metrics[key].each { |dependency, count| metrics[key][dependency] += count } unless repo_metrics[key].nil?
+      when Array
+        metrics[key] += repo_metrics[key] unless repo_metrics[key].nil?
+      when Numeric
+        metrics[key] += repo_metrics[key] unless repo_metrics[key].nil?
       end
     end
 
-    time_to_merge_distribution = time_to_merge_distribution(time_to_merge)
-    pr_success_rate = success_rate(total_opened_prs, merged_prs + closed_without_merging)
-    frequently_updated = frequently_updated.select { |_, count| count.positive? }.sort_by { |_, count| -count }.to_h
-    prs_per_dependency = prs_per_dependency.select { |_, count| count.positive? }.sort_by { |_, count| -count }.to_h
-    open_prs_per_dependency = open_prs_per_dependency.select { |_, count| count.positive? }.sort_by { |_, count| -count }.to_h
+    repo_name = repo_metrics[:repo_name]
+    if repo_name
+      metrics[:frequently_updated][repo_name] = repo_metrics[:total_opened_prs]
+    end
+  end
 
-    major_update_percentage = (major.to_f / total_opened_prs * 100).round(2)
-    minor_update_percentage = (minor.to_f / total_opened_prs * 100).round(2)
-    patch_update_percentage = (patch.to_f / total_opened_prs * 100).round(2)
+  def sort_and_filter_count(count_hash)
+    count_hash.select { |_, count| count.positive? }.sort_by { |_, count| -count }.to_h
+  end
 
-    {
-      from: from,
-      to: to,
-      total_opened_prs: total_opened_prs,
-      merged_prs: merged_prs,
-      closed_without_merging: closed_without_merging,
-      pr_success_rate: pr_success_rate,
-      average_time_to_merge: (time_to_merge.sum(0.0) / time_to_merge.size).round(2),
-      average_time_since_open: (time_since_open.sum(0.0) / time_since_open.size).round(2),
-      time_to_merge_distribution: time_to_merge_distribution,
-      frequently_updated: frequently_updated,
-      prs_per_dependency: prs_per_dependency,
-      open_prs_per_dependency: open_prs_per_dependency,
-      time_since_open_count: time_since_open.size,
-      outdated_dependencies: outdated_dependencies,
-      long_merge_dependencies: long_merge_dependencies,
-      failing_prs: failing_prs,
-      major_update_percentage: major_update_percentage,
-      minor_update_percentage: minor_update_percentage,
-      patch_update_percentage: patch_update_percentage,
-      pr_data: pr_data,
-    }
+  def average_time(time_values)
+    (time_values.sum(0.0) / time_values.size).round(2)
   end
 
   def display_metrics(metrics, output_format, outdated_limit)
@@ -271,7 +249,10 @@ class Dependabot
       puts "Total PRs raised by Dependabot: #{metrics[:total_opened_prs]}"
       puts "  (The total number of pull requests opened by Dependabot during the specified time period)"
       puts ""
-      puts "% PRs raised by update type: major: #{metrics[:major_update_percentage]}%, minor: #{metrics[:minor_update_percentage]}%, patch: #{metrics[:patch_update_percentage]}%"
+      puts "% PRs raised by update type:"
+      puts "Major: #{metrics[:major_update_percentage]}%"
+      puts "Minor: #{metrics[:minor_update_percentage]}%"
+      puts "Patch: #{metrics[:patch_update_percentage]}%"
       puts "  (The percentage of pull requests opened by Dependabot during the specified time period classified into major, minor and patch update type)"
       puts ""
       puts "Total PRs merged: #{metrics[:merged_prs]}"
