@@ -5,41 +5,36 @@ require "date"
 
 class Dependabot
   def client
-    @client ||=
-      Octokit::Client.new(
-        access_token: ENV.fetch("GITHUB_TOKEN"),
-        auto_paginate: false,
-      )
+    @client ||= Octokit::Client.new(access_token: ENV.fetch("GITHUB_TOKEN"), auto_paginate: false)
   end
 
   def govuk_repos
     @govuk_repos ||=
-      JSON.parse(
-        Net::HTTP.get(
-          URI("https://docs.publishing.service.gov.uk/repos.json"),
-        ),
-      )
-          .map { |repo| "alphagov/#{repo['app_name']}" }
+      JSON.parse(Net::HTTP.get(URI("https://docs.publishing.service.gov.uk/repos.json"))).map { |repo| "alphagov/#{repo['app_name']}" }
   end
 
-  def get_dependency_name_and_version(title)
-    details = title.match(/^(?:(?:\[Security\]\ )?Bump|build\(deps.*\): bump) (.+) from (.+) to (.+)/) ||
+  def match_title(title)
+    title.match(/^(?:(?:\[Security\]\ )?Bump|build\(deps.*\): bump) (.+) from (.+) to (.+)/) ||
       title.match(/^Update (.+) requirement from (?:=|~>) (.+) to (?:=|~>)/)
+  end
 
-    return nil if details.nil?
-
-    from_version_parts = details[2].split(".")
-    to_version_parts = details[3].split(".")
-    update_type = nil
-
-    update_type = if from_version_parts[0] != to_version_parts[0]
+  def determine_update_type(from_version_parts, to_version_parts)
+    if from_version_parts[0] != to_version_parts[0]
                     "major"
                   elsif from_version_parts[1] != to_version_parts[1]
                     "minor"
                   else
                     "patch"
                   end
+  end
 
+  def get_dependency_name_and_version(title)
+    details = match_title(title)
+    return nil if details.nil?
+
+    from_version_parts = details[2].split(".")
+    to_version_parts = details[3].split(".")
+    update_type = determine_update_type(from_version_parts, to_version_parts)
     [details[1], details[2], update_type]
   end
 
