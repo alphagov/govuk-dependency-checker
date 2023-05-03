@@ -1,7 +1,33 @@
-require "octokit"
-require "net/http"
-require "json"
 require "date"
+require "json"
+require "net/http"
+require "octokit"
+require "prometheus/client"
+require "prometheus/client/push"
+
+PROMETHEUS_PUSHGATEWAY_URL = ENV.fetch("PROMETHEUS_PUSHGATEWAY_URL")
+
+METRIC_DEFINITIONS = [
+  { name: :total_opened_prs, type: Prometheus::Client::Gauge, docstring: "Total pull requests", labels: %i[timestamp repo_name dependency_name] },
+  { name: :total_failing_prs, type: Prometheus::Client::Gauge, docstring: "Total failing PRs", labels: %i[timestamp repo_name dependency_name] },
+  { name: :time_since_open_count, type: Prometheus::Client::Gauge, docstring: "Open pull requests", labels: %i[timestamp repo_name dependency_name] },
+  { name: :closed_without_merging, type: Prometheus::Client::Gauge, docstring: "Closed pull requests", labels: %i[timestamp repo_name dependency_name] },
+  { name: :merged_prs, type: Prometheus::Client::Gauge, docstring: "Merged pull requests", labels: %i[timestamp repo_name dependency_name] },
+  { name: :total_security_alerts, type: Prometheus::Client::Gauge, docstring: "Total security alerts", labels: [:timestamp] },
+  { name: :major_update_percentage, type: Prometheus::Client::Gauge, docstring: "Major update PRs raised", labels: [:timestamp] },
+  { name: :minor_update_percentage, type: Prometheus::Client::Gauge, docstring: "Minor update PRs raised", labels: [:timestamp] },
+  { name: :patch_update_percentage, type: Prometheus::Client::Gauge, docstring: "Patch update PRs raised", labels: [:timestamp] },
+  { name: :average_time_to_merge, type: Prometheus::Client::Gauge, docstring: "Average time to merge a PR", labels: [:timestamp] },
+  { name: :average_time_since_open, type: Prometheus::Client::Gauge, docstring: "Average time open PRs have been waiting (including superseded PRs)", labels: [:timestamp] },
+  { name: :time_to_merge_distribution, type: Prometheus::Client::Histogram, docstring: "Time-to-merge distribution", labels: [:timestamp] },
+  { name: :frequently_updated_repos, type: Prometheus::Client::Gauge, docstring: "Frequently updated repos", labels: [:timestamp, :repo_name] },
+  { name: :prs_per_dependency, type: Prometheus::Client::Gauge, docstring: "Number of PRs per dependency", labels: [:timestamp, :dependency_name] },
+  { name: :open_prs_per_dependency, type: Prometheus::Client::Gauge, docstring: "Number of open PRs per dependency", labels: [:timestamp, :dependency_name] },
+  { name: :security_alerts_per_repo, type: Prometheus::Client::Gauge, docstring: "Security alerts per repo", labels: [:timestamp, :repo_name] },
+  { name: :security_alerts_per_dependency, type: Prometheus::Client::Gauge, docstring: "Security alerts per dependency", labels: [:timestamp, :dependency_name] },
+  { name: :outdated_dependencies, type: Prometheus::Client::Gauge, docstring: "Dependencies outdated for more than 20 days", labels: %i[:timestamp, dependency_name repo_name days_outdated] },
+  { name: :long_merge_dependencies, type: Prometheus::Client::Gauge, docstring: "Dependencies that took more than 20 days to merge", labels: %i[:timestamp, dependency_name repo_name days_to_merge] },
+].freeze
 
 class Dependabot
   def client
@@ -15,7 +41,7 @@ class Dependabot
 
   def match_title(title)
     title.match(/^(?:(?:\[Security\]\ )?Bump|build\(deps.*\): bump) (.+) from (.+) to (.+)/) ||
-      title.match(/^Update (.+) requirement from (?:=|~>) (.+) to (?:=|~>)/)
+      title.match(/^Update (.+) requirement from (?:=|~>) (.+) to (?:=|~>)(.+)/)
   end
 
   def determine_update_type(from_version_parts, to_version_parts)
@@ -56,6 +82,13 @@ class Dependabot
     []
   end
 
+  def fetch_security_alerts(repo)
+    client.get("https://api.github.com/repos/#{repo}/dependabot/alerts", accept: "application/vnd.github+json", state: "open")
+  rescue StandardError => e
+    puts e.message
+    []
+  end
+
   def dependabot_history_per_repo(repo, from)
     repo_dependabot_prs = {}
 
@@ -80,6 +113,9 @@ class Dependabot
   def fetch_checks_status(repo, commit_ref)
     check_runs = client.check_runs_for_ref(repo, commit_ref)
     check_runs.check_runs.map(&:conclusion)
+  rescue Octokit::BadGateway => e
+    puts "Error: #{e.message}"
+    []
   end
 
   def process_pr(metrics, opened_pr, created_at, dependency, repo, outdated_limit)
@@ -148,6 +184,7 @@ class Dependabot
       end
     end
 
+    metrics[:security_alerts] = fetch_security_alerts(repo)
     metrics[:repo_name] = repo
     metrics
   end
@@ -164,7 +201,11 @@ class Dependabot
 
   def dependabot_time_to_merge(from:, to:, outdated_limit:, output_format: "CLI")
     metrics = calculate_metrics(from: from, to: to, outdated_limit: outdated_limit)
-    display_metrics(metrics, output_format, outdated_limit)
+    if output_format == "prometheus"
+      push_to_prometheus(metrics)
+    else
+      display_metrics(metrics, output_format, outdated_limit)
+    end
   end
 
   def calculate_metrics(from:, to:, outdated_limit:)
@@ -180,13 +221,16 @@ class Dependabot
       patch_updates: 0,
       prs_per_dependency: Hash.new(0),
       open_prs_per_dependency: Hash.new(0),
-      frequently_updated: Hash.new(0),
+      frequently_updated_repos: Hash.new(0),
       outdated_dependencies: [],
       long_merge_dependencies: [],
-      pr_data: [],
       failing_prs: [],
       time_to_merge: [],
       time_since_open: [],
+      security_alerts_per_repo: Hash.new(0),
+      security_alerts_per_dependency: Hash.new(0),
+      total_security_alerts: 0,
+      total_failing_prs: 0,
     }
 
     govuk_repos.each do |repo|
@@ -196,7 +240,7 @@ class Dependabot
 
     metrics[:time_to_merge_distribution] = time_to_merge_distribution(metrics[:time_to_merge])
     metrics[:pr_success_rate] = success_rate(metrics[:total_opened_prs], metrics[:time_to_merge].size + metrics[:closed_without_merging])
-    metrics[:frequently_updated] = sort_and_filter_count(metrics[:frequently_updated])
+    metrics[:frequently_updated_repos] = sort_and_filter_count(metrics[:frequently_updated_repos])
     metrics[:prs_per_dependency] = sort_and_filter_count(metrics[:prs_per_dependency])
     metrics[:open_prs_per_dependency] = sort_and_filter_count(metrics[:open_prs_per_dependency])
 
@@ -210,6 +254,10 @@ class Dependabot
     metrics[:average_time_since_open] = average_time(metrics[:time_since_open])
     metrics[:time_since_open_count] = metrics[:time_since_open].size
     metrics[:merged_prs] = metrics[:time_to_merge].size
+    metrics[:security_alerts_per_dependency] = sort_and_filter_count(metrics[:security_alerts_per_dependency])
+    metrics[:security_alerts_per_repo] = sort_and_filter_count(metrics[:security_alerts_per_repo])
+    metrics[:total_security_alerts] = metrics[:security_alerts_per_repo].values.sum
+    metrics[:total_failing_prs] = metrics[:failing_prs].count
 
     metrics
   end
@@ -228,7 +276,16 @@ class Dependabot
 
     repo_name = repo_metrics[:repo_name]
     if repo_name
-      metrics[:frequently_updated][repo_name] = repo_metrics[:total_opened_prs]
+      metrics[:frequently_updated_repos][repo_name] = repo_metrics[:total_opened_prs]
+
+      repo_metrics[:security_alerts].each do |alert|
+        dependency_name = alert[:dependency][:package][:name]
+
+        metrics[:security_alerts_per_repo][repo_name] ||= 0
+        metrics[:security_alerts_per_repo][repo_name] += 1
+        metrics[:security_alerts_per_dependency][dependency_name] ||= 0
+        metrics[:security_alerts_per_dependency][dependency_name] += 1
+      end
     end
   end
 
@@ -238,6 +295,46 @@ class Dependabot
 
   def average_time(time_values)
     (time_values.sum(0.0) / time_values.size).round(2)
+  end
+
+  def push_to_prometheus(metrics)
+    prometheus = Prometheus::Client.registry
+
+    METRIC_DEFINITIONS.each do |definition|
+      metric = prometheus.get(definition[:name]) || prometheus.register(definition[:type].new(definition[:name], docstring: definition[:docstring], labels: definition[:labels] || []))
+      metric_value = metrics[definition[:name]]
+
+      if metric_value.nil?
+        puts "Error: metric_value is nil for #{definition[:name]}"
+        next
+      end
+
+      case metric
+      when Prometheus::Client::Gauge
+        if definition[:labels]
+          if definition[:name] == :outdated_dependencies || definition[:name] == :long_merge_dependencies
+            metric_value.each do |entry|
+              label_values = definition[:labels].map { |label| [label, entry[label]] }.to_h.transform_keys(&:to_sym)
+              metric.set(1, labels: label_values)
+            end
+          else
+            metric_value.each do |label_value, value|
+              metric.set(value, labels: { definition[:labels][0] => label_value })
+            end
+          end
+        else
+          metric.set(metric_value)
+        end
+      when Prometheus::Client::Histogram
+        metric_value.each do |bucket, count|
+          count.times { metric.observe(bucket) }
+        end
+      else
+        puts "Error: Unhandled metric type for #{definition[:name]}"
+      end
+    end
+
+    Prometheus::Client::Push.new(job: 'dependabot_metrics', gateway: PROMETHEUS_PUSHGATEWAY_URL).add(prometheus)
   end
 
   def display_metrics(metrics, output_format, outdated_limit)
@@ -274,8 +371,8 @@ class Dependabot
       puts "  (The average number of days that open Dependabot PRs have been waiting for a merge, including those that were superseded by newer PRs)"
       puts ""
       puts "-----------------------------------------------------------------"
-      puts "#{metrics[:failing_prs].count} Failing PRs:"
-      puts metrics[:failing_prs].empty? ? "" : metrics[:failing_prs].map { |item| "#{item[:repo]} - #{item[:dependency]} - PR ##{item[:pr_number]}" }
+      puts "#{metrics[:total_failing_prs]} Failing PRs:"
+      puts metrics[:total_failing_prs].zero? ? "" : metrics[:failing_prs].map { |item| "#{item[:repo]} - #{item[:dependency]} - PR ##{item[:pr_number]}" }
       puts "  (A list of open Dependabot PRs that currently have failing checks)"
       puts ""
       puts "-----------------------------------------------------------------"
@@ -287,7 +384,7 @@ class Dependabot
       puts ""
       puts "-----------------------------------------------------------------"
       puts "Frequently Updated Repos:"
-      metrics[:frequently_updated].each { |repo, count| puts "#{repo}: #{count} PRs" }
+      metrics[:frequently_updated_repos].each { |repo, count| puts "#{repo}: #{count} PRs" }
       puts "  (A list of repositories that receive the most frequent Dependabot PRs)"
       puts ""
       puts "-----------------------------------------------------------------"
@@ -301,6 +398,19 @@ class Dependabot
       puts "  (A breakdown of the number of open Dependabot PRs per dependency)"
       puts ""
       puts "-----------------------------------------------------------------"
+      puts "Total Security Alerts: #{metrics[:total_security_alerts]}"
+      puts ""
+      puts "-----------------------------------------------------------------"
+      puts "Security Alerts per Repo:"
+      metrics[:security_alerts_per_repo].each { |repo, count| puts "#{repo}: #{count}" }
+      puts "  (A breakdown of the number of open security alerts per repository)"
+      puts ""
+      puts "-----------------------------------------------------------------"
+      puts "Security Alerts per Dependency:"
+      metrics[:security_alerts_per_dependency].each { |dependency, count| puts "#{dependency}: #{count}" }
+      puts "  (A breakdown of the number of open security alerts per dependency)"
+      puts ""
+      puts "-----------------------------------------------------------------"
       puts "Dependencies Outdated for More Than #{outdated_limit} Days:"
       metrics[:outdated_dependencies].each do |dependency_info|
         puts "#{dependency_info[:dependency]} from #{dependency_info[:repo]}: #{dependency_info[:days_outdated]} days"
@@ -312,35 +422,6 @@ class Dependabot
       metrics[:long_merge_dependencies].each do |dependency_info|
         puts "Dependency #{dependency_info[:dependency]} from #{dependency_info[:repo]} was merged in #{dependency_info[:days_to_merge]} days"
       end
-    when "json"
-      json_output = {
-        range: {
-          from: metrics[:from].strftime("%Y-%m-%dT%H:%M:%SZ"),
-          to: metrics[:to].strftime("%Y-%m-%dT%H:%M:%SZ"),
-        },
-        summary: {
-          total_opened_prs: metrics[:total_opened_prs],
-          closed_prs: metrics[:closed_prs],
-          pr_success_rate: metrics[:pr_success_rate].round(2),
-          average_time_to_merge: metrics[:average_time_to_merge],
-          average_time_since_open: metrics[:average_time_since_open],
-          time_to_merge_count: metrics[:time_to_merge_count],
-          time_since_open_count: metrics[:time_since_open_count],
-        },
-        time_to_merge_distribution: metrics[:time_to_merge_distribution],
-        frequently_updated: metrics[:frequently_updated],
-        prs_per_dependency: metrics[:prs_per_dependency],
-        open_prs_per_dependency: metrics[:open_prs_per_dependency],
-        outdated_dependencies: metrics[:outdated_dependencies],
-        long_merge_dependencies: metrics[:long_merge_dependencies],
-        failing_prs: metrics[:failing_prs],
-        pr_data: metrics[:pr_data],
-      }
-
-      puts JSON.pretty_generate(json_output)
-    when "csv"
-      # Display the results in CSV format
-      # ...
     else
       raise "Invalid output format: #{output_format}"
     end
