@@ -1,0 +1,33 @@
+name: Deploy
+
+run-name: Deploy ${{ inputs.gitRef || github.ref_name  }} to production
+
+on:
+  workflow_dispatch:
+    inputs:
+      gitRef:
+        description: 'Commit, tag or branch name to deploy'
+        required: true
+        type: string
+        default: 'main'
+
+jobs:
+  build-and-publish-image:
+    name: Build and publish image
+    uses: alphagov/govuk-infrastructure/.github/workflows/build-and-push-image.yml@main
+    with:
+      gitRef: ${{ inputs.gitRef || github.ref }}
+    secrets:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_GOVUK_ECR_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_GOVUK_ECR_SECRET_ACCESS_KEY }}
+  trigger-deploy:
+    name: Trigger deploy to production
+    needs: build-and-publish-image
+    uses: alphagov/govuk-infrastructure/.github/workflows/deploy.yml@main
+    with:
+      imageTag: ${{ needs.build-and-publish-image.outputs.imageTag }}
+      environment: production
+    secrets:
+      WEBHOOK_TOKEN: ${{ secrets.GOVUK_ARGO_EVENTS_WEBHOOK_TOKEN }}
+      WEBHOOK_URL: ${{ secrets.GOVUK_ARGO_EVENTS_WEBHOOK_URL }}
+      GH_TOKEN: ${{ secrets.GOVUK_CI_GITHUB_API_TOKEN }}
