@@ -39,4 +39,4 @@ require "./lib/dependabot_metrics"
 # end
 
 # options = get_options
-DependabotMetrics.new.run(from: "2023-04-28", to: "2023-05-05", output_format: "prometheus")
+DependabotMetrics.new("2023-04-05", "2023-04-15", "prometheus").run
