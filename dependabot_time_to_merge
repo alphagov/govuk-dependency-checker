@@ -1,42 +1,42 @@
 #!/usr/bin/env ruby
 
 require "slop"
-require "./dependabot_time_to_merge"
+require "./lib/dependabot_metrics"
 
-def get_options
-  options = Slop::Options.new do |o|
-    o.on "-h", "--help", "print this usage information" do
-      puts o
-      exit
-    end
-    o.string "--from", "(optional)"
-    o.string "--to", "(optional)"
-    o.integer "--days-range", "specify a range of days from today", required: false
-    o.string "--output-format", "CLI or json", default: "CLI"
-    o.integer "--outdated-limit", "display which dependencies were outdated for more than X number of days", default: 20
-  end
+# def get_options
+#   options = Slop::Options.new do |o|
+#     o.on "-h", "--help", "print this usage information" do
+#       puts o
+#       exit
+#     end
+#     o.string "--from", "(optional)"
+#     o.string "--to", "(optional)"
+#     o.integer "--days-range", "specify a range of days from today", required: false
+#     o.string "--output-format", "CLI or json", default: "CLI"
+#     o.integer "--outdated-limit", "display which dependencies were outdated for more than X number of days", default: 20
+#   end
 
-  begin
-    parsed_options = options.parse(ARGV).to_hash
+#   begin
+#     parsed_options = options.parse(ARGV).to_hash
 
-    if parsed_options[:from].nil? && parsed_options[:to].nil? && parsed_options[:days_range].nil?
-      raise Slop::Error, "You must provide either --from and --to or --days-range."
-    elsif (!parsed_options[:from].nil? && parsed_options[:to].nil?) || (parsed_options[:from].nil? && !parsed_options[:to].nil?)
-      raise Slop::Error, "Both --from and --to must be provided together."
-    end
+#     if parsed_options[:from].nil? && parsed_options[:to].nil? && parsed_options[:days_range].nil?
+#       raise Slop::Error, "You must provide either --from and --to or --days-range."
+#     elsif (!parsed_options[:from].nil? && parsed_options[:to].nil?) || (parsed_options[:from].nil? && !parsed_options[:to].nil?)
+#       raise Slop::Error, "Both --from and --to must be provided together."
+#     end
 
-    if parsed_options[:days_range]
-      parsed_options[:to] = Date.today.to_s
-      parsed_options[:from] = (Date.today - parsed_options[:days_range]).to_s
-    end
+#     if parsed_options[:days_range]
+#       parsed_options[:to] = Date.today.to_s
+#       parsed_options[:from] = (Date.today - parsed_options[:days_range]).to_s
+#     end
 
-    parsed_options
-  rescue Slop::Error => e
-    puts e
-    puts options
-    exit
-  end
-end
+#     parsed_options
+#   rescue Slop::Error => e
+#     puts e
+#     puts options
+#     exit
+#   end
+# end
 
-options = get_options
-Dependabot.new.dependabot_time_to_merge(from: options[:from], to: options[:to], outdated_limit: options[:outdated_limit], output_format: options[:output_format])
+# options = get_options
+DependabotMetrics.new.run(from: "2023-04-28", to: "2023-05-05", output_format: "prometheus")
