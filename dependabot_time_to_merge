@@ -37,5 +37,4 @@ def get_options
   end
 end
 
-options = get_options
-DependabotMetrics.new(options[:from], options[:to], options[:output_format]).run
+DependabotMetrics.new.run
