@@ -181,15 +181,7 @@ class DependabotMetrics
     prometheus_metrics = initialize_prometheus_metrics
     update_prometheus_metrics(prometheus_metrics)
 
-    # Prometheus::Client::Push.new(job: 'dependabot_metrics', gateway: ENV.fetch("PROMETHEUS_PUSHGATEWAY_URL")).add(Prometheus::Client.registry)
-
-    # Print metric values (remove this in production)
-    Prometheus::Client.registry.metrics.each do |metric|
-      puts "#{metric.name}:"
-      metric.values.each do |labels, value|
-        puts "  #{labels.inspect} => #{value}"
-      end
-    end
+    Prometheus::Client::Push.new(job: 'dependabot_metrics', gateway: ENV.fetch("PROMETHEUS_PUSHGATEWAY_URL")).add(Prometheus::Client.registry)
   end
 
   def run
