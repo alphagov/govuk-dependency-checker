@@ -5,20 +5,22 @@ require "date"
 require "prometheus/client"
 require "prometheus/client/push"
 
+ORG = 'alphagov'
+
 class DependabotMetrics
   attr_accessor :metrics
 
   def initialize
     @metrics = {
       total_new_prs: 0,
-      prs_by_update_type: Hash.new(0),
-      prs_per_dependency: Hash.new { |h, k| h[k] = Hash.new(0) },
-      total_merged_prs: 0,
       total_closed_prs: 0,
+      total_merged_prs: 0,
       total_open_prs: 0,
       open_prs: [],
       open_failing_prs: [],
       merge_times: [],
+      prs_per_dependency: Hash.new { |h, k| h[k] = Hash.new(0) },
+      prs_by_update_type: Hash.new(0),
       frequently_updated_repos: Hash.new(0),
       open_prs_per_dependency: Hash.new(0),
       security_alerts_per_repo: Hash.new(0),
@@ -32,7 +34,7 @@ class DependabotMetrics
 
   def govuk_repos
     @govuk_repos ||=
-      JSON.parse(Net::HTTP.get(URI("https://docs.publishing.service.gov.uk/repos.json"))).map { |repo| "alphagov/#{repo['app_name']}" }
+      JSON.parse(Net::HTTP.get(URI("https://docs.publishing.service.gov.uk/repos.json"))).map { |repo| "#{repo['app_name']}" }
   end
 
   def get_repo_prs(repo)
@@ -41,7 +43,7 @@ class DependabotMetrics
 
     loop do
       puts "#{repo} page: #{page}"
-      issues = client.list_issues(repo, { state: "all", labels: "dependencies", since: (Date.today - 1).to_s, page: page, per_page: 100 })
+      issues = client.list_issues("#{ORG}/#{repo}", { state: "all", labels: "dependencies", since: (Date.today - 1).to_s, page: page, per_page: 100 })
       break if issues.empty?
 
       repo_prs += issues
@@ -54,14 +56,14 @@ class DependabotMetrics
   end
 
   def fetch_security_alerts(repo)
-    client.get("https://api.github.com/repos/#{repo}/dependabot/alerts", accept: "application/vnd.github+json", state: "open")
+    client.get("https://api.github.com/repos/#{ORG}/#{repo}/dependabot/alerts", accept: "application/vnd.github+json", state: "open")
   rescue StandardError => e
     puts e.message
     []
   end
 
   def fetch_checks_status(repo, commit_ref)
-    check_runs = client.check_runs_for_ref(repo, commit_ref)
+    check_runs = client.check_runs_for_ref("#{ORG}/#{repo}", commit_ref)
     check_runs.check_runs.map(&:conclusion)
   rescue Octokit::BadGateway => e
     puts "Error: #{e.message}"
@@ -69,9 +71,9 @@ class DependabotMetrics
   end
 
   def failing_checks?(repo, pr_number)
-    pr_data = client.pull_request(repo, pr_number)
+    pr_data = client.pull_request("#{ORG}/#{repo}", pr_number)
     commit_ref = pr_data[:head][:sha]
-    check_conclusions = fetch_checks_status(repo, commit_ref)
+    check_conclusions = fetch_checks_status("#{ORG}/#{repo}", commit_ref)
     failing_checks = check_conclusions.count { |conclusion| conclusion != "success" && conclusion != "neutral" && conclusion != "skipped" }
     failing_checks.positive?
   rescue StandardError => e
@@ -80,7 +82,7 @@ class DependabotMetrics
   end
 
   def get_pr_timeline(repo, pr_number)
-    client.issue_timeline(repo, pr_number)
+    client.issue_timeline("#{ORG}/#{repo}", pr_number)
   rescue Octokit::NotFound
     puts "Could not find PR number #{pr_number} in repo #{repo}"
     []
