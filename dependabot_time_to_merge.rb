@@ -73,7 +73,7 @@ class DependabotMetrics
   def failing_checks?(repo, pr_number)
     pr_data = client.pull_request("#{ORG}/#{repo}", pr_number)
     commit_ref = pr_data[:head][:sha]
-    check_conclusions = fetch_checks_status("#{ORG}/#{repo}", commit_ref)
+    check_conclusions = fetch_checks_status(repo, commit_ref)
     failing_checks = check_conclusions.count { |conclusion| conclusion != "success" && conclusion != "neutral" && conclusion != "skipped" }
     failing_checks.positive?
   rescue StandardError => e
