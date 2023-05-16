@@ -3,6 +3,7 @@
 source "https://rubygems.org"
 
 gem "octokit", "~> 6.1"
+gem "prometheus-client"
 gem "slop"
 
 group :test do
