@@ -1,0 +1,5 @@
+#!/usr/bin/env ruby
+
+require "./dependabot_metrics"
+
+DependabotMetrics.new.run
