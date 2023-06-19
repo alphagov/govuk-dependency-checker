@@ -46,6 +46,7 @@ function updateHeaders_(sheet) {
   sheet.getRange(1, 10).setValue("activesupport");
   sheet.getRange(1, 11).setValue("activerecord");
   sheet.getRange(1, 12).setValue("Gem?");
+  sheet.getRange(1, 13).setValue("Has dependabot.yml?");
 }
 
 function updateRow_(row) {
@@ -61,6 +62,7 @@ function updateRow_(row) {
     updateActiveSupportVersion_(repo,    row.offset(0,9,1,1));
     updateActiveRecordVersion_(repo,    row.offset(0,10,1,1));
     updateRepoType(repo,    row.offset(0,11,1,1));
+    updateDependabotyml(repo,    row.offset(0,12,1,1));
   }
 }
 
@@ -235,6 +237,15 @@ function getVersionFromGemspec_(repo, dependencyName) {
 function updateRepoType(repo, targetCell) {
   var gemspec = getFileContents_("https://raw.githubusercontent.com/alphagov/" + repo + "/master/" + repo + ".gemspec");
   if (gemspec) {
+    targetCell.setValue("Yes");
+  } else {
+    targetCell.setValue("No");
+  }    
+}
+
+function updateDependabotyml(repo, targetCell) {
+  var dependabotyml = getFileContents_("https://raw.githubusercontent.com/alphagov/" + repo + "/master/.github/dependabot.yml");
+  if (dependabotyml) {
     targetCell.setValue("Yes");
   } else {
     targetCell.setValue("No");
