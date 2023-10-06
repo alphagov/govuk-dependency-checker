@@ -2,7 +2,7 @@
 
 source "https://rubygems.org"
 
-gem "octokit", "~> 6.1"
+gem "octokit", "~> 7.2"
 gem "prometheus-client"
 gem "slop"
 
