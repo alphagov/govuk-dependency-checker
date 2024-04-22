@@ -13,6 +13,8 @@ class DependabotPrometheusMetrics
       total_new_prs: 0,
       total_closed_prs: 0,
       total_merged_prs: 0,
+      auto_merged: 0,
+      merged_by_user: 0,
       total_open_prs: 0,
       open_prs: [],
       open_failing_prs: [],
@@ -120,6 +122,8 @@ class DependabotPrometheusMetrics
       prs_by_update_type: registry.counter(:prs_by_update_type, docstring: "Number of PRs by update type", labels: %i[update_type]),
       prs_per_dependency: registry.counter(:prs_per_dependency, docstring: "Number of PRs per dependency and update type", labels: %i[dependency update_type]),
       total_merged_prs: registry.counter(:total_merged_prs, docstring: "Total number of merged PRs"),
+      auto_merged: registry.counter(:auto_merged, docstring: "Total number of auto-merged PRs"),
+      merged_by_user: registry.counter(:merged_by_user, docstring: "Total number of PRs merged by users"),
       total_closed_prs: registry.counter(:total_closed_prs, docstring: "Total number of closed PRs"),
       total_open_prs: registry.gauge(:total_open_prs, docstring: "Total number of open PRs"),
       open_prs: registry.gauge(:open_prs, docstring: "Open PRs with their creation date, title, repo, and PR number", labels: %i[created_at title repo pr_number]),
@@ -138,6 +142,8 @@ class DependabotPrometheusMetrics
 
     prometheus_metrics[:total_new_prs].increment(by: @metrics[:total_new_prs])
     prometheus_metrics[:total_merged_prs].increment(by: @metrics[:total_merged_prs])
+    prometheus_metrics[:auto_merged].increment(by: @metrics[:auto_merged])
+    prometheus_metrics[:merged_by_user].increment(by: @metrics[:merged_by_user])
     prometheus_metrics[:total_closed_prs].increment(by: @metrics[:total_closed_prs])
     prometheus_metrics[:total_open_prs].set(@metrics[:total_open_prs])
 
@@ -208,6 +214,14 @@ class DependabotPrometheusMetrics
         if pr.state == "closed"
           if pr.pull_request[:merged_at]
             timeline_events = get_pr_timeline(repo, pr[:number])
+
+            timeline_events.each do |event|
+              if event[:event] == "merged" && event[:actor][:login] == "govuk-ci"
+                @metrics[:auto_merged] += 1
+              else
+                @metrics[:merged_by_user] += 1
+              end
+            end
 
             superseded_pr_events = timeline_events.select do |event|
               event[:event] == "cross-referenced" && event[:actor][:login] == "dependabot[bot]"
