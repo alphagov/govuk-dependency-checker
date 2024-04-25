@@ -218,7 +218,7 @@ class DependabotPrometheusMetrics
             timeline_events.each do |event|
               if event[:event] == "merged" && event[:actor][:login] == "govuk-ci"
                 @metrics[:auto_merged] += 1
-              else
+              elsif event[:event] == "merged" && event[:actor][:login] != "govuk-ci"
                 @metrics[:merged_by_user] += 1
               end
             end
