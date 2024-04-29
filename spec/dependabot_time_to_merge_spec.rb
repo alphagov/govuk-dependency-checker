@@ -1,5 +1,4 @@
 require 'rspec'
-require 'webmock/rspec'
 require_relative '../dependabot_time_to_merge'
 
 RSpec.describe '#dependabot_time_to_merge' do
