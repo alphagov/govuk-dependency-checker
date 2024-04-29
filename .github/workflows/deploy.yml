@@ -19,6 +19,7 @@ jobs:
       gitRef: ${{ inputs.gitRef || github.ref }}
     permissions:
       id-token: write
+      contents: read
   trigger-deploy:
     name: Trigger deploy to production
     needs: build-and-publish-image
