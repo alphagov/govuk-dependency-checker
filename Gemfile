@@ -7,7 +7,5 @@ gem "prometheus-client"
 gem "slop"
 
 group :test do
-  gem "rake"
   gem "rspec"
-  gem "webmock"
 end
