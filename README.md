@@ -7,6 +7,8 @@ this repo includes:
   that gathers statistics and sends the metrics to Prometheus.
   It can then be seen on a [Grafana dashboard](https://grafana.eks.production.govuk.digital/d/dependabot-metrics/dependabot-metrics?orgId=1&refresh=1d)
 
+- Metrics on auto-merged vs user-merged Dependabot PRs.
+
 - Checking for gems that are included both locally in an application,
   and in GOV.UK's own `govuk_app_config` gem. This way, we don't have
   to do duplicate Dependabot updates for unnecessary duplication.

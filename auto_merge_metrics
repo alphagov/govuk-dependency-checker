@@ -1,0 +1,25 @@
+#!/usr/bin/env ruby
+
+require "slop"
+require "./auto_merge_metrics"
+
+def get_options
+  options = Slop::Options.new do |o|
+    o.on "-h", "--help", "print this usage information" do
+      puts o
+      exit
+    end
+    o.string "--from", "(required)", required: true
+    o.string "--to", "(required)", required: true
+  end
+
+  begin
+    options.parse(ARGV).to_hash
+  rescue Slop::Error => e
+    puts e
+    puts options
+    exit
+  end
+end
+
+AutoMergeMetrics.new.run(**get_options)
