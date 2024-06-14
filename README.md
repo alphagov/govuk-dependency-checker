@@ -35,3 +35,8 @@ They all require `GITHUB_TOKEN` as an environment variable, with at
 least `repo` scope.
 
 There is also an Apps Script to pull dependency versions into a spreadsheet.
+
+## How to deploy
+
+This needs manual deployment to production. Once the `release` GitHub Action has run select the `deploy` GitHub action and
+ under `Use workflow from` choose to deploy from the latest tag. Then enter the latest tag number into the text field.
