@@ -20,6 +20,7 @@ jobs:
     permissions:
       id-token: write
       contents: read
+      packages: write
   trigger-deploy:
     name: Trigger deploy to production
     needs: build-and-publish-image
