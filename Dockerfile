@@ -1,4 +1,4 @@
-FROM ruby:3.2-alpine
+FROM --platform=$TARGETPLATFORM ruby:3.3-alpine
 
 COPY Gemfile* ./
 
