@@ -43,26 +43,28 @@ function updateHeaders_(sheet) {
   sheet.getRange(1, 7).setValue("Schema");
   sheet.getRange(1, 8).setValue("Slimmer");
   sheet.getRange(1, 9).setValue("govuk_publishing_components");
-  sheet.getRange(1, 10).setValue("activesupport");
-  sheet.getRange(1, 11).setValue("activerecord");
-  sheet.getRange(1, 12).setValue("Gem?");
-  sheet.getRange(1, 13).setValue("Has dependabot.yml?");
+  sheet.getRange(1, 10).setValue("govuk_app_config");
+  sheet.getRange(1, 11).setValue("activesupport");
+  sheet.getRange(1, 12).setValue("activerecord");
+  sheet.getRange(1, 13).setValue("Gem?");
+  sheet.getRange(1, 14).setValue("Has dependabot.yml?");
 }
 
 function updateRow_(row) {
   var repo = row.getValue();
   if (repo != '') {
-    updateRubyVersion_(repo,    row.offset(0,2,1,1));
-    updateRailsVersion_(repo,   row.offset(0,3,1,1));
-    updateMongoidVersion_(repo, row.offset(0,4,1,1));
-    updateSidekiqVersion_(repo,    row.offset(0,5,1,1));
-    updateSchemasVersion_(repo,    row.offset(0,6,1,1));
-    updateSlimmerVersion_(repo,    row.offset(0,7,1,1));
-    updateComponentVersion_(repo,    row.offset(0,8,1,1));
-    updateActiveSupportVersion_(repo,    row.offset(0,9,1,1));
-    updateActiveRecordVersion_(repo,    row.offset(0,10,1,1));
-    updateRepoType(repo,    row.offset(0,11,1,1));
-    updateDependabotyml(repo,    row.offset(0,12,1,1));
+    updateRubyVersion_(repo,row.offset(0,2,1,1));
+    updateRailsVersion_(repo,row.offset(0,3,1,1));
+    updateMongoidVersion_(repo,row.offset(0,4,1,1));
+    updateSidekiqVersion_(repo,row.offset(0,5,1,1));
+    updateSchemasVersion_(repo,row.offset(0,6,1,1));
+    updateSlimmerVersion_(repo,row.offset(0,7,1,1));
+    updateComponentVersion_(repo,row.offset(0,8,1,1));
+    updateAppConfigVersion_(repo,row.offset(0,9,1,1));
+    updateActiveSupportVersion_(repo,row.offset(0,10,1,1));
+    updateActiveRecordVersion_(repo,row.offset(0,11,1,1));
+    updateRepoType(repo,row.offset(0,12,1,1));
+    updateDependabotyml(repo,row.offset(0,13,1,1));
   }
 }
 
@@ -73,7 +75,7 @@ function updateRubyVersion_(repo, targetCell) {
     targetCell.setValue(version);
   } else {
     targetCell.setValue("n/a");
-  }    
+  }
 }
 
 function updateRailsVersion_(repo, targetCell) {
@@ -86,7 +88,7 @@ function updateRailsVersion_(repo, targetCell) {
     updateBouncerRailsVersion_(repo, targetCell);
     return;
   }
-  
+
   var version = getVersionFromGemfileLock_(repo, 'rails');
   if (version === undefined) {
     version = getVersionFromGemfile_(repo, 'rails');
@@ -118,7 +120,7 @@ function updateErrbitRailsVersion_(repo, targetCell) {
   targetCell.setValue(version);
 }
 
-// Bouncer doesn't depend on Rails, but it does use ActiveRecord so we 
+// Bouncer doesn't depend on Rails, but it does use ActiveRecord so we
 // pull the pinned version of that from Gemfile.lock
 function updateBouncerRailsVersion_(repo, targetCell) {
   var version = getVersionFromGemfileLock_(repo, 'activerecord');
@@ -155,6 +157,14 @@ function updateSlimmerVersion_(repo, targetCell) {
 
 function updateComponentVersion_(repo, targetCell) {
   var version = getVersionFromGemfileLock_(repo, 'govuk_publishing_components');
+  if (version === undefined) {
+    version = '';
+  }
+  targetCell.setValue(version);
+}
+
+function updateAppConfigVersion_(repo, targetCell) {
+  var version = getVersionFromGemfileLock_(repo, 'govuk_app_config');
   if (version === undefined) {
     version = '';
   }
@@ -240,7 +250,7 @@ function updateRepoType(repo, targetCell) {
     targetCell.setValue("Yes");
   } else {
     targetCell.setValue("No");
-  }    
+  }
 }
 
 function updateDependabotyml(repo, targetCell) {
@@ -249,7 +259,7 @@ function updateDependabotyml(repo, targetCell) {
     targetCell.setValue("Yes");
   } else {
     targetCell.setValue("No");
-  }    
+  }
 }
 
 function getFileContents_(url) {
