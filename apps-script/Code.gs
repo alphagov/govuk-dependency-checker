@@ -82,7 +82,7 @@ function updateSheet_(sheet) {
 function updateHeaders_(sheet) {
   var headers = ["Ruby", "Rails", "Mongoid", "Sidekiq", "Schema", "Slimmer",
                  "govuk_publishing_components", "govuk_app_config",
-                 "activesupport", "activerecord", "Gem?", "Has dependabot.yml?"];
+                 "activesupport", "activerecord", "Gem?", "Has dependabot.yml?", "Uses Dependabot Auto-merger?", "Dependabot Auto-Merger version", "Auto-merging external dependencies?"];
   sheet.getRange(1, 3, 1, headers.length).setValues([headers]);
 }
 
@@ -104,7 +104,10 @@ function updateRow_(row) {
       updateActiveSupportVersion_,
       updateActiveRecordVersion_,
       updateRepoType,
-      updateDependabotyml
+      updateDependabotyml,
+      updateDependabotMerger,
+      updateDependabotMergerVersion,
+      updateDependabotMergingExternalDependencies
     ];
 
     updateFunctions.forEach(function(updateFunc, index) {
@@ -209,11 +212,51 @@ function updateRepoType(repo, targetCell) {
 }
 
 /*
- Checks for the presence of a dependabot.yml file.
+ Checks for a dependabot.yml file.
  */
 function updateDependabotyml(repo, targetCell) {
   var hasDependabot = getFileContents_(`https://raw.githubusercontent.com/alphagov/${repo}/master/.github/dependabot.yml`) ? "Yes" : "No";
   targetCell.setValue(hasDependabot);
+}
+
+/*
+ Checks for a govuk_dependabot_merger.yml file.
+ */
+function updateDependabotMerger(repo, targetCell) {
+  var yml = getFileContents_("https://raw.githubusercontent.com/alphagov/" + repo + "/main/.govuk_dependabot_merger.yml");
+
+  if (yml) {
+    targetCell.setValue("Yes");
+  } else {
+    targetCell.setValue("No");
+  }
+}
+/*
+ Checks the version of the Dependabot Automerger.
+ */
+function updateDependabotMergerVersion(repo, targetCell) {
+  var config = getFileContents_("https://raw.githubusercontent.com/alphagov/" + repo + "/main/.govuk_dependabot_merger.yml");
+  if (config === undefined) {
+    targetCell.setValue("")
+  } else if (config.includes("api_version: 2")) {
+      targetCell.setValue("2")
+    } else if (config.includes("api_version: 1")) {
+      targetCell.setValue("1")
+    }
+}
+
+/*
+ Checks if Automerging is configured to merge external dependencies.
+ */
+function updateDependabotMergingExternalDependencies(repo, targetCell) {
+  var config = getFileContents_("https://raw.githubusercontent.com/alphagov/" + repo + "/main/.govuk_dependabot_merger.yml");
+  if (config === undefined) {
+    targetCell.setValue("")
+  } else if (config.includes("update_external_dependencies: true")) {
+      targetCell.setValue("Yes")
+    } else {
+      targetCell.setValue("No")
+    }
 }
 
 // Fetch and update versions for various dependencies
