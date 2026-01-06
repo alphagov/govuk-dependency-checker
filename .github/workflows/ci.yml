@@ -29,6 +29,8 @@ jobs:
     uses: alphagov/govuk-infrastructure/.github/workflows/codeql-analysis.yml@main
     permissions:
       security-events: write
+    with:
+      languages: "actions, ruby"
 
   dependency-review:
     name: Dependency Review scan
