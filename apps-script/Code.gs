@@ -80,7 +80,7 @@ function updateSheet_(sheet) {
  Sets the headers for the 'Repos' sheet.
  */
 function updateHeaders_(sheet) {
-  var headers = ["Ruby", "Rails", "Mongoid", "Sidekiq", "Schema", "Slimmer",
+  var headers = ["Ruby", "Rails", "Mongoid", "Sidekiq", "Schema",
                  "govuk_publishing_components", "govuk_app_config",
                  "activesupport", "activerecord", "Gem?", "Has dependabot.yml?", "Uses Dependabot Auto-merger?", "Dependabot Auto-Merger version", "Auto-merging external dependencies?"];
   sheet.getRange(1, 3, 1, headers.length).setValues([headers]);
@@ -98,7 +98,6 @@ function updateRow_(row) {
       updateMongoidVersion_,
       updateSidekiqVersion_,
       updateSchemasVersion_,
-      updateSlimmerVersion_,
       updateComponentVersion_,
       updateAppConfigVersion_,
       updateActiveSupportVersion_,
@@ -266,10 +265,6 @@ function updateSidekiqVersion_(repo, targetCell) {
 
 function updateSchemasVersion_(repo, targetCell) {
   updateDependencyVersion_(repo, targetCell, 'govuk_schemas');
-}
-
-function updateSlimmerVersion_(repo, targetCell) {
-  updateDependencyVersion_(repo, targetCell, 'slimmer');
 }
 
 function updateComponentVersion_(repo, targetCell) {
