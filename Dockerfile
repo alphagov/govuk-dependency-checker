@@ -1,8 +1,10 @@
-FROM --platform=$TARGETPLATFORM ruby:3.3-alpine
+FROM ruby:4.0.9-alpine3.24
 
 COPY Gemfile* ./
 
-RUN bundle install
+RUN apk add --no-cache --virtual .build-deps build-base && \
+    bundle install && \
+    apk del .build-deps
 
 COPY dependabot_prometheus_metrics dependabot_prometheus_metrics.rb ./
 
